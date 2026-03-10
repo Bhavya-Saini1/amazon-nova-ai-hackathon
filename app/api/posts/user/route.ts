@@ -1,7 +1,9 @@
 import { NextResponse } from 'next/server';
 import { auth0 } from '@/lib/auth0';
 import { connectDB } from '@/lib/db/mongodb';
+import { getFollowCounts } from '@/lib/follows';
 import { Post } from '@/lib/models/Post';
+import { serializePost } from '@/lib/posts';
 import { findOrCreateUserFromSessionUser, hasCompleteProfile } from '@/lib/profile';
 
 export const dynamic = 'force-dynamic';
@@ -27,23 +29,8 @@ export async function GET() {
       .lean()
       .exec();
 
-    const serializedPosts = posts.map((post) => ({
-      _id: String(post._id),
-      raw_text: post.raw_text,
-      category: post.category ?? null,
-      severity: post.severity ?? null,
-      location_text: post.location_text ?? null,
-      created_at: post.created_at,
-      is_anonymous: Boolean(post.is_anonymous),
-      author_name: post.is_anonymous ? 'Anonymous' : user.username || 'Anonymous',
-      visibility_label: post.is_anonymous ? 'Anonymous' : 'Public',
-      user_id: {
-        _id: String(user._id),
-        username: user.username ?? null,
-        email: user.email,
-        auth0_id: user.auth0_id,
-      },
-    }));
+    const serializedPosts = posts.map(serializePost);
+    const followCounts = await getFollowCounts(user._id);
 
     return NextResponse.json(
       {
@@ -60,8 +47,8 @@ export async function GET() {
           is_complete: hasCompleteProfile(user),
         },
         stats: {
-          followers: 0,
-          following: 0,
+          followers: followCounts.followers,
+          following: followCounts.following,
           posts: serializedPosts.length,
         },
         posts: serializedPosts,

@@ -3,45 +3,9 @@ import { auth0 } from '@/lib/auth0';
 import { connectDB } from '@/lib/db/mongodb';
 import { Post } from '@/lib/models/Post';
 import { findOrCreateUserFromSessionUser, hasCompleteProfile } from '@/lib/profile';
+import { serializePost } from '@/lib/posts';
 
 export const dynamic = 'force-dynamic';
-
-function serializePost(post: {
-  _id: unknown;
-  raw_text: string;
-  category?: string | null;
-  severity?: string | null;
-  location_text?: string | null;
-  created_at: Date;
-  is_anonymous?: boolean;
-  user_id?: {
-    _id?: unknown;
-    username?: string | null;
-    email?: string | null;
-    auth0_id?: string;
-  } | null;
-}) {
-  const isAnonymous = Boolean(post.is_anonymous);
-
-  return {
-    _id: String(post._id),
-    raw_text: post.raw_text,
-    category: post.category ?? null,
-    severity: post.severity ?? null,
-    location_text: post.location_text ?? null,
-    created_at: post.created_at,
-    is_anonymous: isAnonymous,
-    author_name: isAnonymous ? 'Anonymous' : post.user_id?.username || 'Anonymous',
-    user_id: post.user_id
-      ? {
-          _id: post.user_id._id ? String(post.user_id._id) : null,
-          username: post.user_id.username ?? null,
-          email: post.user_id.email ?? null,
-          auth0_id: post.user_id.auth0_id ?? null,
-        }
-      : null,
-  };
-}
 
 export async function GET() {
   try {

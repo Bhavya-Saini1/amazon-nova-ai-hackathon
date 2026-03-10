@@ -83,9 +83,9 @@ export default function Profile() {
 
   if (isLoading) {
     return (
-      <div className="brand-app-shell">
+      <div className="brand-internal-shell">
         <main className="mx-auto max-w-4xl px-4 py-8">
-          <p className="text-[#6d6282]">Loading...</p>
+          <p className="text-[#d8cfee]">Loading...</p>
         </main>
       </div>
     );
@@ -99,10 +99,10 @@ export default function Profile() {
   const avatarFallback = displayName[0]?.toUpperCase() || 'U';
 
   return (
-    <div className="brand-app-shell">
+    <div className="brand-internal-shell">
       <AppHeader />
       <main className="max-w-5xl mx-auto px-4 py-8 sm:py-10">
-        <section className="overflow-hidden rounded-[32px] border border-white/70 bg-white/88 shadow-[0_18px_48px_rgba(44,26,72,0.08)]">
+        <section className="brand-glass-surface overflow-hidden rounded-[32px]">
           <div className="bg-gradient-to-r from-[#1d1432] via-[#2f1f4a] to-[#7d5ba9] px-6 py-8 sm:px-8">
             <div className="flex flex-col gap-6 sm:flex-row sm:items-center sm:justify-between">
               <div className="flex items-center gap-4">
@@ -133,7 +133,7 @@ export default function Profile() {
 
               <Link
                 href="/create-post"
-                className="inline-flex items-center justify-center rounded-2xl bg-white px-5 py-3 text-sm font-semibold text-[#2f1f4a] shadow-lg transition-all hover:-translate-y-0.5 hover:bg-[#faf5ff]"
+                className="brand-primary-button"
               >
                 Create a new post
               </Link>
@@ -146,9 +146,9 @@ export default function Profile() {
               { label: 'Following', value: stats.following },
               { label: 'Posts', value: stats.posts },
             ].map((stat) => (
-              <div key={stat.label} className="rounded-3xl border border-[#eee4f8] bg-[#fbf8fd] px-5 py-4">
-                <p className="text-sm font-medium text-[#7d6b95]">{stat.label}</p>
-                <p className="mt-2 text-3xl font-bold text-[#241735]">{stat.value}</p>
+              <div key={stat.label} className="brand-glass-panel brand-glass-card-hover px-5 py-4">
+                <p className="text-sm font-medium text-[#d8cfee]">{stat.label}</p>
+                <p className="mt-2 text-3xl font-bold text-white">{stat.value}</p>
               </div>
             ))}
           </div>
@@ -161,9 +161,9 @@ export default function Profile() {
                 { label: 'Phone number', value: profile.phone_number },
                 { label: 'Full name', value: `${profile.first_name} ${profile.last_name}` },
               ].map((item) => (
-                <div key={item.label} className="rounded-3xl border border-[#eee4f8] bg-[#fbf8fd] px-5 py-4">
-                  <p className="text-sm font-medium text-[#7d6b95]">{item.label}</p>
-                  <p className="mt-2 text-base font-semibold text-[#241735]">{item.value}</p>
+                <div key={item.label} className="brand-glass-panel brand-glass-card-hover px-5 py-4">
+                  <p className="text-sm font-medium text-[#d8cfee]">{item.label}</p>
+                  <p className="mt-2 text-base font-semibold text-white">{item.value}</p>
                 </div>
               ))}
             </div>
@@ -173,7 +173,7 @@ export default function Profile() {
             <div className="mb-6 flex items-center justify-between gap-3">
               <div>
                 <h2 className="text-2xl font-bold text-[#241735]">Your posts</h2>
-                <p className="mt-1 text-sm text-[#7d6b95]">
+                <p className="mt-1 text-sm text-[#d8cfee]">
                   {stats.posts === 0
                     ? 'No reports yet — share your first incident report.'
                     : `${stats.posts} post${stats.posts !== 1 ? 's' : ''} from your account`}
@@ -182,8 +182,8 @@ export default function Profile() {
             </div>
 
             {postsLoading && (
-              <div className="flex items-center justify-center rounded-3xl bg-[#fbf8fd] py-16">
-                <p className="text-[#7d6b95]">Loading your posts...</p>
+              <div className="brand-glass-panel flex items-center justify-center py-16">
+                <p className="text-[#d8cfee]">Loading your posts...</p>
               </div>
             )}
 

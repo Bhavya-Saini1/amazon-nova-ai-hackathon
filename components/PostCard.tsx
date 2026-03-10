@@ -31,16 +31,16 @@ export function PostCard({
   };
 
   return (
-    <article className="group relative overflow-hidden rounded-[28px] border border-white/70 bg-white/88 p-5 shadow-[0_18px_48px_rgba(44,26,72,0.08)] transition hover:-translate-y-0.5 hover:shadow-[0_24px_56px_rgba(44,26,72,0.14)]">
+    <article className="brand-glass-card brand-glass-card-hover group relative overflow-hidden rounded-[28px] p-5">
       <div className="absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-[#2f1f4a] via-[#b79bff] to-[#ef9d8f] opacity-80" />
       <div className="flex items-center justify-between mb-3">
         <div className="flex items-center gap-3">
-          <div className="flex h-10 w-10 items-center justify-center rounded-full bg-gradient-to-br from-[#2f1f4a] via-[#7b60b4] to-[#e795a7] text-sm font-bold text-white">
+          <div className="flex h-10 w-10 items-center justify-center rounded-full bg-gradient-to-br from-[#2f1f4a] via-[#7b60b4] to-[#e795a7] text-sm font-bold text-white transition-all duration-300 group-hover:shadow-[0_0_22px_rgba(196,163,255,0.34)]">
             {username[0]?.toUpperCase() || 'U'}
           </div>
           <div>
-            <h3 className="text-sm font-semibold text-[#241735]">{username}</h3>
-            <p className="text-xs text-[#7d6b95]">{formattedTime}</p>
+            <h3 className="text-sm font-semibold text-white">{username}</h3>
+            <p className="text-xs text-[#d8cfee]">{formattedTime}</p>
           </div>
         </div>
         {severity && (
@@ -50,21 +50,21 @@ export function PostCard({
         )}
       </div>
 
-      <p className="mb-4 text-sm leading-relaxed text-[#433554]">{preview}</p>
+      <p className="mb-4 text-sm leading-relaxed text-[#f0ebf7]">{preview}</p>
 
       <div className="flex flex-wrap gap-2 items-center">
         {visibilityLabel && (
-          <span className="inline-block rounded-full border border-[#eadff5] bg-white px-2.5 py-1 text-xs font-medium text-[#6a5a84]">
+          <span className="inline-block rounded-full border border-white/14 bg-white/8 px-2.5 py-1 text-xs font-medium text-[#e8dcfb] backdrop-blur-sm">
             {visibilityLabel}
           </span>
         )}
         {category && (
-          <span className="inline-block rounded-full border border-[#eadff5] bg-[#f8f2fd] px-2.5 py-1 text-xs font-medium text-[#6a5a84]">
+          <span className="inline-block rounded-full border border-white/14 bg-white/8 px-2.5 py-1 text-xs font-medium text-[#e8dcfb] backdrop-blur-sm">
             {category}
           </span>
         )}
         {location && (
-          <span className="inline-flex items-center gap-1 rounded-full border border-[#e6dbf4] bg-[#f6f0fb] px-2.5 py-1 text-xs text-[#674f8f]">
+          <span className="inline-flex items-center gap-1 rounded-full border border-white/14 bg-white/8 px-2.5 py-1 text-xs text-[#eedffc] backdrop-blur-sm">
             <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20">
               <path fillRule="evenodd" d="M5.05 4.05a7 7 0 119.9 9.9L10 18.9l-4.95-4.95a7 7 0 010-9.9zM10 11a2 2 0 100-4 2 2 0 000 4z" clipRule="evenodd" />
             </svg>

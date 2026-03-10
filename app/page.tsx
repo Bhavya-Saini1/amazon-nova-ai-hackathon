@@ -33,7 +33,7 @@ export default function LandingPage() {
       <div className="absolute bottom-0 left-1/4 h-80 w-80 rounded-full bg-rose-300/10 blur-3xl" />
 
       <div className="relative mx-auto flex min-h-screen max-w-7xl flex-col px-6 py-8 lg:px-8">
-        <header className="flex items-center justify-between rounded-full border border-white/10 bg-white/5 px-5 py-3 backdrop-blur-xl">
+        <header className="brand-ambient-card flex items-center justify-between rounded-full border border-white/10 bg-white/5 px-5 py-3 backdrop-blur-xl">
           <div className="flex items-center gap-3">
             <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-gradient-to-br from-[#cdb7ff] via-[#e0c7ff] to-[#f6c0c8] text-lg font-bold text-[#241735]">
               H
@@ -111,7 +111,7 @@ export default function LandingPage() {
             <div className="absolute -left-10 top-8 hidden h-36 w-36 rounded-full bg-fuchsia-500/15 blur-3xl lg:block" />
             <div className="absolute -bottom-12 right-0 h-40 w-40 rounded-full bg-purple-400/20 blur-3xl" />
 
-            <div className="relative overflow-hidden rounded-[32px] border border-white/10 bg-white/10 p-6 shadow-2xl shadow-black/20 backdrop-blur-xl">
+            <div className="brand-ambient-card relative overflow-hidden rounded-[32px] border border-white/10 bg-white/10 p-6 shadow-2xl shadow-black/20 backdrop-blur-xl">
               <div className="absolute inset-0 bg-gradient-to-br from-white/10 via-transparent to-fuchsia-300/10" />
 
               <div className="relative space-y-6">
@@ -171,29 +171,6 @@ export default function LandingPage() {
         </section>
       </div>
 
-      {/* Custom animations */}
-      <style jsx>{`
-        @keyframes blob {
-          0%, 100% {
-            transform: translate(0, 0) scale(1);
-          }
-          33% {
-            transform: translate(30px, -50px) scale(1.1);
-          }
-          66% {
-            transform: translate(-20px, 20px) scale(0.9);
-          }
-        }
-        .animate-blob {
-          animation: blob 7s infinite;
-        }
-        .animation-delay-2000 {
-          animation-delay: 2s;
-        }
-        .animation-delay-4000 {
-          animation-delay: 4s;
-        }
-      `}</style>
     </main>
   );
 }

@@ -14,6 +14,49 @@
   --brand-rose: #e795a7;
   --brand-coral: #ef9d8f;
   --brand-shadow: 0 24px 60px rgba(44, 26, 72, 0.12);
+  --brand-network-pattern:
+    radial-gradient(circle at 20% 30%, rgba(255, 255, 255, 0.95) 0 1.25px, transparent 1.6px),
+    radial-gradient(circle at 76% 48%, rgba(255, 255, 255, 0.92) 0 1.1px, transparent 1.45px),
+    radial-gradient(circle at 44% 74%, rgba(255, 255, 255, 0.85) 0 1px, transparent 1.4px),
+    linear-gradient(112deg, transparent 0 42%, rgba(255, 255, 255, 0.22) 42.4%, transparent 43%),
+    linear-gradient(28deg, transparent 0 57%, rgba(255, 255, 255, 0.18) 57.4%, transparent 58%),
+    linear-gradient(90deg, rgba(111, 82, 165, 0.1) 1px, transparent 1px),
+    linear-gradient(rgba(111, 82, 165, 0.08) 1px, transparent 1px);
+}
+
+@keyframes brandMeshFloat {
+  0% {
+    transform: translate3d(-3%, -2%, 0) scale(1);
+  }
+  50% {
+    transform: translate3d(3%, 2%, 0) scale(1.08);
+  }
+  100% {
+    transform: translate3d(-2%, 1%, 0) scale(1.02);
+  }
+}
+
+@keyframes brandMeshDrift {
+  0% {
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+  50% {
+    transform: translate3d(-2%, 3%, 0) scale(1.06);
+  }
+  100% {
+    transform: translate3d(2%, -2%, 0) scale(1.02);
+  }
+}
+
+@keyframes brandGlowPulse {
+  0%, 100% {
+    opacity: 0.52;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.72;
+    transform: scale(1.08);
+  }
 }
 
 body {
@@ -40,7 +83,9 @@ body {
 
 @layer components {
   .brand-app-shell {
-    @apply min-h-screen text-slate-900;
+    @apply min-h-screen overflow-hidden text-slate-900;
+    position: relative;
+    isolation: isolate;
     background-image:
       radial-gradient(circle at top left, rgba(201, 180, 255, 0.18), transparent 28%),
       radial-gradient(circle at top right, rgba(239, 157, 143, 0.14), transparent 22%),
@@ -48,17 +93,115 @@ body {
   }
 
   .brand-dark-shell {
-    @apply min-h-screen text-white;
+    @apply min-h-screen overflow-hidden text-white;
+    position: relative;
+    isolation: isolate;
     background-image:
       radial-gradient(circle at top left, rgba(201, 180, 255, 0.2), transparent 24%),
       radial-gradient(circle at bottom right, rgba(231, 149, 167, 0.16), transparent 22%),
       linear-gradient(135deg, #160f28 0%, #23163d 42%, #2e1c45 100%);
   }
 
+  .brand-app-shell::before,
+  .brand-dark-shell::before {
+    content: '';
+    position: absolute;
+    inset: -18%;
+    z-index: 0;
+    pointer-events: none;
+    background:
+      radial-gradient(circle at 18% 22%, rgba(201, 180, 255, 0.28), transparent 22%),
+      radial-gradient(circle at 82% 18%, rgba(231, 149, 167, 0.2), transparent 20%),
+      radial-gradient(circle at 62% 74%, rgba(135, 104, 198, 0.2), transparent 24%),
+      radial-gradient(circle at 28% 78%, rgba(246, 181, 205, 0.16), transparent 18%),
+      radial-gradient(circle at 52% 46%, rgba(174, 141, 235, 0.12), transparent 28%);
+    filter: blur(26px) saturate(110%);
+    opacity: 0.95;
+    animation: brandMeshFloat 22s ease-in-out infinite alternate;
+  }
+
+  .brand-app-shell::after,
+  .brand-dark-shell::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    z-index: 0;
+    pointer-events: none;
+    background-image: var(--brand-network-pattern);
+    background-size: 480px 480px, 520px 520px, 560px 560px, 420px 420px, 520px 520px, 72px 72px, 72px 72px;
+    background-position: 0 0, 100% 8%, 18% 88%, center, right 15% bottom 10%, 0 0, 0 0;
+    opacity: 0.12;
+    mix-blend-mode: soft-light;
+    animation: brandMeshDrift 28s ease-in-out infinite alternate;
+  }
+
+  .brand-app-shell > *,
+  .brand-dark-shell > * {
+    position: relative;
+    z-index: 1;
+  }
+
+  .brand-internal-shell {
+    @apply min-h-screen overflow-hidden text-white;
+    position: relative;
+    isolation: isolate;
+    background:
+      radial-gradient(circle at top left, rgba(188, 153, 255, 0.14), transparent 22%),
+      radial-gradient(circle at top right, rgba(231, 149, 167, 0.12), transparent 20%),
+      linear-gradient(135deg, #140f26 0%, #1e1537 38%, #271942 68%, #190f30 100%);
+  }
+
+  .brand-internal-shell::before {
+    content: '';
+    position: absolute;
+    inset: -16%;
+    z-index: 0;
+    pointer-events: none;
+    background:
+      radial-gradient(circle at 12% 20%, rgba(201, 180, 255, 0.28), transparent 20%),
+      radial-gradient(circle at 82% 16%, rgba(230, 153, 183, 0.2), transparent 18%),
+      radial-gradient(circle at 68% 76%, rgba(136, 108, 203, 0.24), transparent 22%),
+      radial-gradient(circle at 32% 72%, rgba(255, 204, 221, 0.16), transparent 18%),
+      radial-gradient(circle at 50% 42%, rgba(146, 124, 222, 0.16), transparent 28%);
+    filter: blur(34px) saturate(112%);
+    opacity: 1;
+    animation: brandMeshFloat 24s ease-in-out infinite alternate;
+  }
+
+  .brand-internal-shell::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    z-index: 0;
+    pointer-events: none;
+    background-image:
+      radial-gradient(circle at 14% 24%, rgba(255, 255, 255, 0.86) 0 1px, transparent 1.35px),
+      radial-gradient(circle at 76% 58%, rgba(255, 255, 255, 0.74) 0 1px, transparent 1.35px),
+      radial-gradient(circle at 36% 82%, rgba(255, 255, 255, 0.68) 0 1px, transparent 1.35px),
+      linear-gradient(116deg, transparent 0 42%, rgba(255, 255, 255, 0.12) 42.4%, transparent 42.8%),
+      linear-gradient(28deg, transparent 0 62%, rgba(255, 255, 255, 0.1) 62.4%, transparent 62.8%),
+      radial-gradient(circle at center, rgba(212, 194, 255, 0.08) 0 34%, transparent 35%),
+      linear-gradient(rgba(191, 170, 243, 0.05) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(191, 170, 243, 0.05) 1px, transparent 1px);
+    background-size: 460px 460px, 520px 520px, 560px 560px, 420px 420px, 520px 520px, 820px 820px, 74px 74px, 74px 74px;
+    background-position: 0 0, 100% 0, 12% 100%, center, right 8% bottom 10%, center, 0 0, 0 0;
+    opacity: 0.18;
+    mix-blend-mode: screen;
+    animation: brandMeshDrift 30s ease-in-out infinite alternate;
+  }
+
+  .brand-internal-shell > * {
+    position: relative;
+    z-index: 1;
+  }
+
   .brand-surface {
     background: var(--surface);
     border: 1px solid var(--border-soft);
     box-shadow: var(--brand-shadow);
+    position: relative;
+    overflow: hidden;
+    isolation: isolate;
     @apply rounded-[28px] backdrop-blur-xl;
   }
 
@@ -66,13 +209,206 @@ body {
     background: var(--surface-strong);
     border: 1px solid rgba(93, 63, 136, 0.12);
     box-shadow: 0 18px 48px rgba(44, 26, 72, 0.1);
+    position: relative;
+    overflow: hidden;
+    isolation: isolate;
     @apply rounded-[28px];
   }
 
   .brand-panel {
+    position: relative;
+    overflow: hidden;
+    isolation: isolate;
     @apply rounded-3xl border px-5 py-4;
     border-color: rgba(93, 63, 136, 0.1);
     background: rgba(255, 255, 255, 0.72);
+  }
+
+  .brand-surface::before,
+  .brand-surface-strong::before,
+  .brand-panel::before,
+  .brand-ambient-card::before {
+    content: '';
+    position: absolute;
+    inset: -20% auto auto -12%;
+    height: 180px;
+    width: 180px;
+    border-radius: 9999px;
+    background: radial-gradient(circle, rgba(197, 167, 255, 0.38) 0%, rgba(231, 149, 167, 0.16) 48%, transparent 74%);
+    filter: blur(28px);
+    opacity: 0.58;
+    z-index: 0;
+    animation: brandGlowPulse 14s ease-in-out infinite;
+  }
+
+  .brand-surface::after,
+  .brand-surface-strong::after,
+  .brand-panel::after,
+  .brand-ambient-card::after {
+    content: '';
+    position: absolute;
+    inset: 1px;
+    border-radius: inherit;
+    border: 1px solid rgba(255, 255, 255, 0.22);
+    background: linear-gradient(135deg, rgba(255, 255, 255, 0.12), transparent 34%, rgba(232, 214, 252, 0.08) 100%);
+    opacity: 0.8;
+    z-index: 0;
+    pointer-events: none;
+  }
+
+  .brand-surface > *,
+  .brand-surface-strong > *,
+  .brand-panel > *,
+  .brand-ambient-card > * {
+    position: relative;
+    z-index: 1;
+  }
+
+  .brand-ambient-card {
+    position: relative;
+    overflow: hidden;
+    isolation: isolate;
+  }
+
+  .brand-glass-surface {
+    position: relative;
+    overflow: hidden;
+    isolation: isolate;
+    border: 1px solid rgba(255, 255, 255, 0.14);
+    background:
+      linear-gradient(180deg, rgba(255, 255, 255, 0.16), rgba(255, 255, 255, 0.08)),
+      rgba(255, 255, 255, 0.06);
+    box-shadow:
+      0 24px 70px rgba(8, 6, 22, 0.28),
+      inset 0 1px 0 rgba(255, 255, 255, 0.18);
+    backdrop-filter: blur(22px);
+    -webkit-backdrop-filter: blur(22px);
+    @apply rounded-[30px];
+  }
+
+  .brand-glass-surface::before,
+  .brand-glass-panel::before,
+  .brand-glass-card::before {
+    content: '';
+    position: absolute;
+    inset: -16% auto auto -10%;
+    height: 170px;
+    width: 170px;
+    border-radius: 9999px;
+    background: radial-gradient(circle, rgba(182, 153, 255, 0.3) 0%, rgba(238, 164, 193, 0.16) 44%, transparent 74%);
+    filter: blur(26px);
+    opacity: 0.82;
+    animation: brandGlowPulse 15s ease-in-out infinite;
+  }
+
+  .brand-glass-surface::after,
+  .brand-glass-panel::after,
+  .brand-glass-card::after {
+    content: '';
+    position: absolute;
+    inset: 1px;
+    border-radius: inherit;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    background: linear-gradient(135deg, rgba(255, 255, 255, 0.1), transparent 38%, rgba(245, 197, 228, 0.06));
+    opacity: 0.9;
+    pointer-events: none;
+  }
+
+  .brand-glass-surface > *,
+  .brand-glass-panel > *,
+  .brand-glass-card > * {
+    position: relative;
+    z-index: 1;
+  }
+
+  .brand-glass-panel {
+    position: relative;
+    overflow: hidden;
+    isolation: isolate;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    background:
+      linear-gradient(180deg, rgba(255, 255, 255, 0.12), rgba(255, 255, 255, 0.06)),
+      rgba(255, 255, 255, 0.045);
+    box-shadow: 0 20px 55px rgba(7, 6, 20, 0.24), inset 0 1px 0 rgba(255, 255, 255, 0.18);
+    backdrop-filter: blur(18px);
+    -webkit-backdrop-filter: blur(18px);
+    @apply rounded-3xl;
+  }
+
+  .brand-glass-card {
+    position: relative;
+    overflow: hidden;
+    isolation: isolate;
+    border: 1px solid rgba(255, 255, 255, 0.14);
+    background:
+      linear-gradient(180deg, rgba(255, 255, 255, 0.18), rgba(255, 255, 255, 0.08)),
+      rgba(255, 255, 255, 0.08);
+    box-shadow: 0 22px 60px rgba(8, 6, 22, 0.26), inset 0 1px 0 rgba(255, 255, 255, 0.18);
+    backdrop-filter: blur(18px);
+    -webkit-backdrop-filter: blur(18px);
+  }
+
+  .brand-glass-card-hover {
+    transition:
+      transform 220ms ease,
+      box-shadow 220ms ease,
+      border-color 220ms ease,
+      background-color 220ms ease;
+    will-change: transform;
+  }
+
+  .brand-glass-card-hover:hover {
+    transform: translateY(-4px);
+    border-color: rgba(255, 255, 255, 0.22);
+    box-shadow:
+      0 28px 78px rgba(11, 8, 25, 0.34),
+      0 0 0 1px rgba(223, 188, 255, 0.08),
+      0 0 28px rgba(197, 167, 255, 0.14);
+  }
+
+  .brand-page-title {
+    color: rgba(255, 255, 255, 0.96);
+    text-shadow: 0 8px 24px rgba(10, 6, 22, 0.28);
+  }
+
+  .brand-page-copy {
+    color: rgba(230, 222, 244, 0.82);
+  }
+
+  .brand-page-pill {
+    border: 1px solid rgba(255, 255, 255, 0.14);
+    background: rgba(255, 255, 255, 0.08);
+    color: rgba(233, 222, 250, 0.84);
+    backdrop-filter: blur(14px);
+    -webkit-backdrop-filter: blur(14px);
+    @apply rounded-full;
+  }
+
+  .brand-tabs-shell {
+    position: relative;
+    overflow: hidden;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    background: rgba(255, 255, 255, 0.06);
+    box-shadow: 0 18px 42px rgba(9, 7, 20, 0.22), inset 0 1px 0 rgba(255, 255, 255, 0.12);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    @apply rounded-full p-2;
+  }
+
+  .brand-tabs-shell::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    background: linear-gradient(90deg, rgba(255, 255, 255, 0.05), transparent 28%, rgba(224, 193, 255, 0.06) 72%, transparent);
+    opacity: 0.7;
+    pointer-events: none;
+  }
+
+  .brand-tab {
+    position: relative;
+    overflow: hidden;
+    @apply rounded-full px-4 py-2.5 text-sm font-semibold transition-all duration-300;
   }
 
   .brand-primary-button {
@@ -99,25 +435,35 @@ body {
     border-color: rgba(173, 147, 220, 0.48);
   }
 
-  .brand-tab {
-    @apply rounded-full px-4 py-2.5 text-sm font-semibold transition-all duration-200;
-  }
-
   .brand-tab-active {
     @apply brand-tab text-white;
-    background-image: linear-gradient(135deg, #2b1d42, #6d50a8 72%, #dea5b6 100%);
-    box-shadow: 0 14px 28px rgba(72, 42, 116, 0.22);
+    background-image: linear-gradient(135deg, rgba(205, 183, 255, 0.22), rgba(125, 91, 169, 0.66) 68%, rgba(231, 149, 167, 0.48));
+    box-shadow: 0 14px 30px rgba(10, 7, 23, 0.3), 0 0 24px rgba(191, 157, 255, 0.16);
+    transform: translateY(-1px);
+  }
+
+  .brand-tab-active::before {
+    content: '';
+    position: absolute;
+    left: 16px;
+    right: 16px;
+    bottom: 6px;
+    height: 2px;
+    border-radius: 9999px;
+    background: linear-gradient(90deg, rgba(255, 255, 255, 0.18), rgba(255, 255, 255, 0.9), rgba(255, 214, 228, 0.86));
+    transition: transform 300ms ease, opacity 300ms ease;
   }
 
   .brand-tab-idle {
     @apply brand-tab;
-    color: #66587c;
-    background: rgba(255, 255, 255, 0.7);
+    color: rgba(232, 223, 247, 0.78);
+    background: rgba(255, 255, 255, 0.04);
   }
 
   .brand-tab-idle:hover {
-    background: rgba(255, 255, 255, 0.96);
-    color: #2f1f4a;
+    background: rgba(255, 255, 255, 0.1);
+    color: rgba(255, 255, 255, 0.96);
+    transform: translateY(-1px);
   }
 
   .brand-gradient-text {

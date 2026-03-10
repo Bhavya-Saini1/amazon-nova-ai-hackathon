@@ -2,16 +2,16 @@
 
 import Link from 'next/link';
 
-type CommunityTab = 'trending' | 'near-me' | 'map';
+type CommunityTab = 'trending' | 'near-me' | 'following' | 'map';
 
 interface CommunityTabsProps {
   activeTab: CommunityTab;
-  onTabChange?: (tab: Exclude<CommunityTab, 'map'>) => void;
+  onTabChange?: (tab: Extract<CommunityTab, 'trending' | 'near-me'>) => void;
 }
 
 export function CommunityTabs({ activeTab, onTabChange }: CommunityTabsProps) {
   return (
-    <div className="mb-6 flex gap-3 rounded-full border border-[#eadff5] bg-white/60 p-2 backdrop-blur-xl">
+    <div className="brand-tabs-shell mb-6 flex gap-3">
       {onTabChange ? (
         <button
           type="button"
@@ -39,6 +39,10 @@ export function CommunityTabs({ activeTab, onTabChange }: CommunityTabsProps) {
           Near Me
         </Link>
       )}
+
+      <Link href="/following" className={activeTab === 'following' ? 'brand-tab-active' : 'brand-tab-idle'}>
+        Following
+      </Link>
 
       <Link href="/map" className={activeTab === 'map' ? 'brand-tab-active' : 'brand-tab-idle'}>
         Map
