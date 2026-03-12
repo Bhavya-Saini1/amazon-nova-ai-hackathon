@@ -34,3 +34,10 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# python / local ML artifacts
+**/.venv/
+**/__pycache__/
+*.pyc
+categorymodel/.hf_cache/
+categorymodel/artifacts/
