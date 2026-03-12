@@ -24,9 +24,13 @@ def scale_severity(sigmoid_output, temperature=0.7):
     Temperature < 1 sharpens predictions (more extreme).
     Temperature > 1 flattens predictions (more conservative).
     """
+    # Clamp input to prevent logit from returning inf
+    clamped = max(0.001, min(0.999, float(sigmoid_output)))
+    
     # Apply temperature scaling: lower temperature = more extreme predictions
     # Re-apply sigmoid with temperature to sharpen
-    sharpened = 1 / (1 + torch.exp(-torch.logit(torch.tensor(sigmoid_output)) / temperature))
+    logit_val = torch.logit(torch.tensor(clamped))
+    sharpened = 1 / (1 + torch.exp(-logit_val / temperature))
     result = float(sharpened * 9 + 1)  # Convert to float
     return result
 
@@ -80,7 +84,8 @@ regressor = SeverityRegressor().to(device)
 regressor.eval()  # Set to inference mode for deterministic results
 
 # Try to load trained weights if they exist
-model_path = "severity_model.pt"
+script_dir = os.path.dirname(os.path.abspath(__file__))
+model_path = os.path.join(script_dir, "severity_model.pt")
 if os.path.exists(model_path):
     regressor.load_state_dict(torch.load(model_path, map_location=device))
     print(f"Loaded trained model from {model_path}")

@@ -19,14 +19,16 @@ regressor = SeverityRegressor().to(device)
 regressor.eval()  # Set to inference mode (disable dropout)
 
 # Try to load trained weights
-if os.path.exists("severity_model.pt"):
-    print(f"\nLoading severity_model.pt...")
-    state = torch.load("severity_model.pt", map_location=device)
+script_dir = os.path.dirname(os.path.abspath(__file__))
+model_path = os.path.join(script_dir, "severity_model.pt")
+if os.path.exists(model_path):
+    print(f"\nLoading {model_path}...")
+    state = torch.load(model_path, map_location=device)
     print(f"State keys: {list(state.keys())}")
     regressor.load_state_dict(state)
     print("✓ Loaded trained model weights\n")
 else:
-    print("⚠ severity_model.pt NOT FOUND! Using untrained model\n")
+    print(f"⚠ {model_path} NOT FOUND! Using untrained model\n")
 
 # Test posts
 test_posts = [
@@ -60,6 +62,7 @@ for i, (post_text, category) in enumerate(test_posts, 1):
     
     print(f"\n[Post {i}] ({category})")
     print(f"Text: {post_text}")
+    print(f"Raw Score (sigmoid): {raw_score:.4f}")
     print(f"Severity Score: {score:.2f}/10")
 
 print("\n" + "=" * 60)
