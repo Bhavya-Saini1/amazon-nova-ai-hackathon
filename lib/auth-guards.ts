@@ -4,13 +4,28 @@ import { connectDB } from '@/lib/db/mongodb';
 import { findOrCreateUserFromSessionUser, hasCompleteProfile } from '@/lib/profile';
 
 export async function requireAuthenticatedMongoUser() {
-  const session = await auth0.getSession();
+  let session = null;
+  try {
+    session = await auth0.getSession();
+  } catch (error) {
+    console.error('Auth session unavailable, redirecting to landing page:', error);
+    redirect('/');
+  }
 
   if (!session?.user) {
     redirect('/');
   }
 
-  await connectDB();
+  if (!process.env.MONGODB_URI) {
+    redirect('/');
+  }
+
+  try {
+    await connectDB();
+  } catch (error) {
+    console.error('Database unavailable, redirecting to landing page:', error);
+    redirect('/');
+  }
 
   const user = await findOrCreateUserFromSessionUser(session.user);
 

@@ -41,3 +41,4 @@ next-env.d.ts
 *.pyc
 categorymodel/.hf_cache/
 categorymodel/artifacts/
+env.local

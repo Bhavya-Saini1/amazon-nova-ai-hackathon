@@ -90,6 +90,16 @@ AUTH0_CLIENT_SECRET=<your-client-secret>
 - **AUTH0_CLIENT_ID**: Found in Auth0 application settings
 - **AUTH0_CLIENT_SECRET**: Found in Auth0 application settings
 
+### Mapbox
+
+The heatmap page requires a public Mapbox token:
+
+```
+NEXT_PUBLIC_MAPBOX_ACCESS_TOKEN=<your-mapbox-public-token>
+```
+
+Create one in your Mapbox account dashboard under Access Tokens.
+
 ## Project Structure
 
 ```
@@ -130,8 +140,12 @@ lib/
 
 **POST `/api/posts`**
 - Create a new post (requires authentication)
-- Body: `{ raw_text: string, location_text?: string }`
+- Body: `{ raw_text: string, location_text?: string, severity?: "low" | "medium" | "high", latitude?: number, longitude?: number }`
 - Returns: Created post object
+
+Notes:
+- If `severity` is omitted, the backend infers a basic severity label from report text.
+- If `latitude` and `longitude` are omitted, the API tries parsing coordinates from `location_text` when provided in `"lat,long"` format.
 
 **GET `/api/posts/user`**
 - Fetch authenticated user's posts

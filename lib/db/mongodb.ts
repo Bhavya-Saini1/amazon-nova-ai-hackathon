@@ -11,10 +11,6 @@ type GlobalWithMongoose = typeof globalThis & {
 
 const MONGODB_URI = process.env.MONGODB_URI;
 
-if (!MONGODB_URI) {
-  throw new Error('Please define the MONGODB_URI environment variable inside .env.local');
-}
-
 const cached = globalThis as GlobalWithMongoose;
 
 const mongooseCache = cached.mongoose ?? { conn: null, promise: null };
@@ -22,6 +18,10 @@ const mongooseCache = cached.mongoose ?? { conn: null, promise: null };
 cached.mongoose = mongooseCache;
 
 export async function connectDB() {
+  if (!MONGODB_URI) {
+    throw new Error('Please define the MONGODB_URI environment variable inside .env.local');
+  }
+
   if (mongooseCache.conn) {
     return mongooseCache.conn;
   }

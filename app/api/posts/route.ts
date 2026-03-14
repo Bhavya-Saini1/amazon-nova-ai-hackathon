@@ -7,6 +7,60 @@ import { serializePost } from '@/lib/posts';
 
 export const dynamic = 'force-dynamic';
 
+type SeverityLabel = 'low' | 'medium' | 'high';
+
+function normalizeSeverity(value: unknown): SeverityLabel | null {
+  if (typeof value !== 'string') return null;
+  const normalized = value.trim().toLowerCase();
+  if (!normalized) return null;
+
+  if (['low', 'minor'].includes(normalized)) return 'low';
+  if (['medium', 'moderate', 'med'].includes(normalized)) return 'medium';
+  if (['high', 'severe', 'critical'].includes(normalized)) return 'high';
+
+  return null;
+}
+
+function inferSeverityFromText(rawText: string): SeverityLabel {
+  const text = rawText.toLowerCase();
+  if (
+    /(assault|attack|rape|weapon|stab|kill|threat|kidnap|grop|molest|followed me home|violence)/.test(
+      text
+    )
+  ) {
+    return 'high';
+  }
+  if (/(harass|ogling|stalk|touch|grab|unsafe|abuse|catcall|comment)/.test(text)) {
+    return 'medium';
+  }
+  return 'low';
+}
+
+function parseCoordinatesFromLocation(
+  locationText: string | null
+): { latitude: number; longitude: number } | null {
+  if (!locationText) return null;
+  const trimmed = locationText.trim();
+  if (!trimmed) return null;
+
+  // Supports strings like "43.5890,-79.6441" or "43.5890, -79.6441"
+  const coordMatch = trimmed.match(/(-?\d{1,2}(?:\.\d+)?)\s*,\s*(-?\d{1,3}(?:\.\d+)?)/);
+  if (!coordMatch) return null;
+
+  const latitude = Number(coordMatch[1]);
+  const longitude = Number(coordMatch[2]);
+  if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return null;
+  if (Math.abs(latitude) > 90 || Math.abs(longitude) > 180) return null;
+
+  return { latitude, longitude };
+}
+
+function parseNumericCoordinate(value: unknown, maxAbs: number): number | null {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return null;
+  if (Math.abs(value) > maxAbs) return null;
+  return value;
+}
+
 export async function GET() {
   try {
     await connectDB();
@@ -38,7 +92,19 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const { raw_text, location_text, is_anonymous } = await request.json();
+    const body = await request.json();
+    const raw_text = typeof body.raw_text === 'string' ? body.raw_text : '';
+    const location_text = typeof body.location_text === 'string' ? body.location_text : null;
+    const is_anonymous = Boolean(body.is_anonymous);
+    const providedSeverity = normalizeSeverity(body.severity);
+
+    const providedLatitude = parseNumericCoordinate(body.latitude, 90);
+    const providedLongitude = parseNumericCoordinate(body.longitude, 180);
+
+    const parsedLocationCoords = parseCoordinatesFromLocation(location_text);
+    const latitude = providedLatitude ?? parsedLocationCoords?.latitude ?? null;
+    const longitude = providedLongitude ?? parsedLocationCoords?.longitude ?? null;
+    const severity = providedSeverity ?? inferSeverityFromText(raw_text);
 
     if (!raw_text || raw_text.trim().length === 0) {
       return NextResponse.json(
@@ -62,11 +128,11 @@ export async function POST(request: NextRequest) {
       user_id: user._id,
       raw_text,
       location_text: location_text || null,
-      is_anonymous: Boolean(is_anonymous),
+      is_anonymous,
       category: null,
-      severity: null,
-      latitude: null,
-      longitude: null,
+      severity,
+      latitude,
+      longitude,
     });
 
     await post.populate('user_id', 'username email auth0_id');
