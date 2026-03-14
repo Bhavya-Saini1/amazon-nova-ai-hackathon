@@ -57,37 +57,35 @@ export function MapContainer() {
             id: 'reports-heat',
             type: 'heatmap',
             source: 'reports',
-            maxzoom: 15,
+            maxzoom: 18, // Allow heatmap at higher zoom levels for city viewing
             paint: {
               'heatmap-weight': [
                 'interpolate',
                 ['linear'],
                 ['get', 'severity'],
-                0,
+                1,
                 0,
                 10,
                 1,
               ],
-              'heatmap-intensity': ['interpolate', ['linear'], ['zoom'], 0, 1, 9, 3],
+              'heatmap-intensity': ['interpolate', ['linear'], ['zoom'], 0, 1, 20, 3],
               'heatmap-color': [
                 'interpolate',
                 ['linear'],
                 ['heatmap-density'],
                 0,
                 'rgba(0,0,255,0)',
-                0.1,
-                'royalblue',
-                0.3,
-                'cyan',
+                0.25,
+                'green',
                 0.5,
-                'lime',
-                0.7,
                 'yellow',
+                0.75,
+                'orange',
                 1,
                 'red',
               ],
-              'heatmap-radius': ['interpolate', ['linear'], ['zoom'], 0, 2, 9, 20],
-              'heatmap-opacity': ['interpolate', ['linear'], ['zoom'], 7, 1, 9, 0],
+              'heatmap-radius': ['interpolate', ['linear'], ['zoom'], 0, 2, 12, 8], // Smaller radius at high zoom for city detail
+              'heatmap-opacity': ['interpolate', ['linear'], ['zoom'], 7, 1, 16, 0.6], // Keep visible longer at high zoom
             },
           });
         } else {

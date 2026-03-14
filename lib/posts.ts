@@ -2,7 +2,7 @@ export function serializePost(post: {
   _id: unknown;
   raw_text: string;
   category?: string | null;
-  severity?: string | null;
+  severity?: number | null;
   location_text?: string | null;
   created_at: Date | string;
   is_anonymous?: boolean;

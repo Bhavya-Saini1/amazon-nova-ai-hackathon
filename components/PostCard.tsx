@@ -6,7 +6,7 @@ interface PostCardProps {
   rawText: string;
   timestamp: string;
   category?: string | null;
-  severity?: string | null;
+  severity?: number | null;
   location?: string | null;
   visibilityLabel?: string | null;
 }
@@ -24,10 +24,16 @@ export function PostCard({
   
   const formattedTime = formatTimeAgo(new Date(timestamp));
 
+  const getSeverityLabel = (severity: number): string => {
+    if (severity <= 3) return 'Low';
+    if (severity <= 7) return 'Medium';
+    return 'High';
+  };
+
   const severityBadgeColor: Record<string, string> = {
-    low: 'border border-yellow-200 bg-yellow-50 text-yellow-800',
-    medium: 'border border-orange-200 bg-orange-50 text-orange-800',
-    high: 'border border-red-200 bg-red-50 text-red-700',
+    Low: 'border border-yellow-200 bg-yellow-50 text-yellow-800',
+    Medium: 'border border-orange-200 bg-orange-50 text-orange-800',
+    High: 'border border-red-200 bg-red-50 text-red-700',
   };
 
   return (
@@ -44,8 +50,8 @@ export function PostCard({
           </div>
         </div>
         {severity && (
-          <div className={`rounded-full px-2.5 py-1 text-xs font-medium ${severityBadgeColor[severity.toLowerCase()] || 'border border-gray-200 bg-gray-100 text-gray-800'}`}>
-            {severity}
+          <div className={`rounded-full px-2.5 py-1 text-xs font-medium ${severityBadgeColor[getSeverityLabel(severity)] || 'border border-gray-200 bg-gray-100 text-gray-800'}`}>
+            {getSeverityLabel(severity)}
           </div>
         )}
       </div>

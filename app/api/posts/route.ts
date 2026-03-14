@@ -7,33 +7,37 @@ import { serializePost } from '@/lib/posts';
 
 export const dynamic = 'force-dynamic';
 
-type SeverityLabel = 'low' | 'medium' | 'high';
-
-function normalizeSeverity(value: unknown): SeverityLabel | null {
+function normalizeSeverity(value: unknown): number | null {
   if (typeof value !== 'string') return null;
   const normalized = value.trim().toLowerCase();
   if (!normalized) return null;
 
-  if (['low', 'minor'].includes(normalized)) return 'low';
-  if (['medium', 'moderate', 'med'].includes(normalized)) return 'medium';
-  if (['high', 'severe', 'critical'].includes(normalized)) return 'high';
+  if (['low', 'minor'].includes(normalized)) return 1;
+  if (['medium', 'moderate', 'med'].includes(normalized)) return 5;
+  if (['high', 'severe', 'critical'].includes(normalized)) return 10;
+
+  // Try to parse as number
+  const numeric = Number(normalized);
+  if (Number.isFinite(numeric) && numeric >= 1 && numeric <= 10) {
+    return numeric;
+  }
 
   return null;
 }
 
-function inferSeverityFromText(rawText: string): SeverityLabel {
+function inferSeverityFromText(rawText: string): number {
   const text = rawText.toLowerCase();
   if (
     /(assault|attack|rape|weapon|stab|kill|threat|kidnap|grop|molest|followed me home|violence)/.test(
       text
     )
   ) {
-    return 'high';
+    return 10; // High severity
   }
   if (/(harass|ogling|stalk|touch|grab|unsafe|abuse|catcall|comment)/.test(text)) {
-    return 'medium';
+    return 5; // Medium severity
   }
-  return 'low';
+  return 1; // Low severity
 }
 
 function parseCoordinatesFromLocation(

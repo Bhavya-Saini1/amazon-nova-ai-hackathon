@@ -4,7 +4,7 @@ export interface IPost extends Document {
   user_id: mongoose.Types.ObjectId;
   raw_text: string;
   category?: string | null;
-  severity?: string | null;
+  severity?: number | null;
   location_text?: string | null;
   is_anonymous: boolean;
   latitude?: number | null;
@@ -28,8 +28,10 @@ const PostSchema = new Schema<IPost>(
       default: null,
     },
     severity: {
-      type: String,
+      type: Number,
       default: null,
+      min: 1,
+      max: 10,
     },
     location_text: {
       type: String,

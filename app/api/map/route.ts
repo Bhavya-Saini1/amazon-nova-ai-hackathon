@@ -5,22 +5,22 @@ import { Post } from '@/lib/models/Post';
 
 function toHeatSeverity(value: unknown): number {
   if (typeof value === 'number' && Number.isFinite(value)) {
-    return Math.min(10, Math.max(0, value));
+    return Math.min(10, Math.max(1, value)); // Clamp to 1-10 range
   }
 
   if (typeof value === 'string') {
     const normalized = value.trim().toLowerCase();
-    if (['low', 'minor'].includes(normalized)) return 3;
-    if (['medium', 'moderate', 'med'].includes(normalized)) return 6;
-    if (['high', 'severe', 'critical'].includes(normalized)) return 9;
+    if (['low', 'minor'].includes(normalized)) return 1;
+    if (['medium', 'moderate', 'med'].includes(normalized)) return 5;
+    if (['high', 'severe', 'critical'].includes(normalized)) return 10;
 
     const numeric = Number(normalized);
     if (Number.isFinite(numeric)) {
-      return Math.min(10, Math.max(0, numeric));
+      return Math.min(10, Math.max(1, numeric));
     }
   }
 
-  return 0;
+  return 1; // Default to lowest severity
 }
 
 export async function GET() {
@@ -31,6 +31,8 @@ export async function GET() {
     longitude: { $ne: null },
   })
     .select('latitude longitude severity')
+    .sort({ created_at: -1 })
+    .limit(10)
     .lean();
 
   const features = (posts ?? [])

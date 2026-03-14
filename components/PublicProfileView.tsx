@@ -7,7 +7,7 @@ interface PublicPost {
   _id: string;
   raw_text: string;
   category?: string | null;
-  severity?: string | null;
+  severity?: number | null;
   location_text?: string | null;
   created_at: string;
   author_name: string;

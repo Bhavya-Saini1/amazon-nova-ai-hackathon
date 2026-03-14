@@ -16,7 +16,7 @@ interface Post {
   } | null;
   raw_text: string;
   category?: string | null;
-  severity?: string | null;
+  severity?: number | null;
   location_text?: string | null;
   created_at: string;
   is_anonymous: boolean;
