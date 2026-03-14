@@ -100,6 +100,12 @@ For CPU/macOS environments where full fine-tuning is unstable, use head-only tra
 python prepare_and_train.py --freeze-backbone
 ```
 
+To improve recall on rarer labels (for example `Ogling`), enable class weighting:
+
+```bash
+python prepare_and_train.py --freeze-backbone --use-pos-weight
+```
+
 ## Serve API
 
 ```bash
@@ -108,7 +114,7 @@ uvicorn api:app --host 0.0.0.0 --port 8000
 
 The API uses these environment variables:
 
-- `MODEL_DIR` (default: `./artifacts/distilroberta-safety`)
+- `MODEL_DIR` (default: `./artifacts/safecity-distilroberta-stable-full-weighted`)
 - `PRED_THRESHOLD` (default: `0.5`)
 - `TOP_K_FALLBACK` (default: `3`) returns top classes if none pass threshold
 

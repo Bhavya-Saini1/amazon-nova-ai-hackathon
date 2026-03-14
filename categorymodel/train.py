@@ -7,6 +7,7 @@ import json
 from pathlib import Path
 from typing import List
 
+import torch
 from transformers import AutoTokenizer, TrainingArguments, set_seed
 
 from data import MultiLabelIncidentDataset, build_label_mappings, load_jsonl_records
@@ -47,6 +48,17 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Freeze transformer backbone and train only classification head.",
     )
+    parser.add_argument(
+        "--use-pos-weight",
+        action="store_true",
+        help="Use class-balanced pos_weight in BCEWithLogitsLoss.",
+    )
+    parser.add_argument(
+        "--max-pos-weight",
+        type=float,
+        default=10.0,
+        help="Clamp computed class pos_weight to this max value.",
+    )
     return parser.parse_args()
 
 
@@ -58,6 +70,24 @@ def freeze_backbone_parameters(model) -> int:
             param.requires_grad = False
             frozen += 1
     return frozen
+
+
+def compute_pos_weight(records, label2id, max_pos_weight: float) -> torch.Tensor:
+    """Compute per-class pos_weight = negatives / positives for BCEWithLogitsLoss."""
+    num_classes = len(label2id)
+    total = len(records)
+    positive_counts = torch.zeros(num_classes, dtype=torch.float32)
+
+    for rec in records:
+        for label in rec.labels:
+            idx = label2id.get(label)
+            if idx is not None:
+                positive_counts[idx] += 1.0
+
+    negative_counts = total - positive_counts
+    # Avoid divide-by-zero and clamp to a practical range.
+    pos_weight = negative_counts / torch.clamp(positive_counts, min=1.0)
+    return torch.clamp(pos_weight, max=max_pos_weight)
 
 
 def main() -> None:
@@ -75,6 +105,12 @@ def main() -> None:
 
     train_records = load_jsonl_records(args.train_file)
     valid_records = load_jsonl_records(args.valid_file)
+    pos_weight = None
+    if args.use_pos_weight:
+        pos_weight = compute_pos_weight(
+            train_records, label2id, max_pos_weight=args.max_pos_weight
+        )
+        print(f"Using pos_weight: {pos_weight.tolist()}")
 
     train_dataset = MultiLabelIncidentDataset(
         records=train_records,
@@ -112,6 +148,7 @@ def main() -> None:
         train_dataset=train_dataset,
         eval_dataset=valid_dataset,
         compute_metrics=build_compute_metrics(threshold=0.5),
+        pos_weight=pos_weight,
     )
 
     trainer.train()

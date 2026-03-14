@@ -38,6 +38,17 @@ def parse_args() -> argparse.Namespace:
         help="Freeze transformer backbone and train only classification head.",
     )
     parser.add_argument(
+        "--use-pos-weight",
+        action="store_true",
+        help="Use class-balanced pos_weight in BCEWithLogitsLoss.",
+    )
+    parser.add_argument(
+        "--max-pos-weight",
+        type=float,
+        default=10.0,
+        help="Clamp computed class pos_weight to this max value.",
+    )
+    parser.add_argument(
         "--hf-home",
         type=str,
         default="./.hf_cache",
@@ -84,6 +95,8 @@ def run_training(args: argparse.Namespace, env: dict[str, str]) -> None:
     ]
     if args.freeze_backbone:
         cmd.append("--freeze-backbone")
+    if args.use_pos_weight:
+        cmd.extend(["--use-pos-weight", "--max-pos-weight", str(args.max_pos_weight)])
     subprocess.run(cmd, check=True, env=env)
 
 

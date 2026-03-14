@@ -32,15 +32,20 @@ def build_model(model_name: str, labels: Sequence[str]):
 class MultiLabelTrainer(Trainer):
     """HuggingFace Trainer with explicit BCEWithLogitsLoss."""
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args, pos_weight: torch.Tensor | None = None, **kwargs):
         super().__init__(*args, **kwargs)
-        self.loss_fn = nn.BCEWithLogitsLoss()
+        self.pos_weight = pos_weight
 
     def compute_loss(self, model, inputs, return_outputs=False, num_items_in_batch=None):
         labels = inputs.pop("labels")
         outputs = model(**inputs)
         logits = outputs.logits
-        loss = self.loss_fn(logits, labels)
+        loss_fn = nn.BCEWithLogitsLoss(
+            pos_weight=self.pos_weight.to(logits.device)
+            if self.pos_weight is not None
+            else None
+        )
+        loss = loss_fn(logits, labels)
         return (loss, outputs) if return_outputs else loss
 
 
