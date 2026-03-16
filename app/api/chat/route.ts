@@ -1,17 +1,23 @@
 import { NextRequest } from 'next/server';
 import {
   BedrockRuntimeClient,
+  ConverseCommand,
   ConverseStreamCommand,
+  type ContentBlock,
   type Message,
   type SystemContentBlock,
   type Tool,
+  type ToolResultContentBlock,
 } from '@aws-sdk/client-bedrock-runtime';
 import { auth0 } from '@/lib/auth0';
+import { connectDB } from '@/lib/db/mongodb';
+import { Post } from '@/lib/models/Post';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 const MODEL_ID = 'amazon.nova-lite-v1:0';
+const MAX_TOOL_ROUNDS = 5;
 
 function getBedrockClient() {
   return new BedrockRuntimeClient({
@@ -26,12 +32,48 @@ function getBedrockClient() {
 const SYSTEM_PROMPT: SystemContentBlock[] = [
   {
     text: [
-      'You are HeraBot, a safety and navigation assistant built into the Hera community safety app.',
-      'You help users understand local safety incidents reported in their area.',
-      'You can control the map interface by calling tools to pan to locations or filter incident markers.',
-      'When a user mentions a city, neighborhood, or place, use focus_map to center the map there.',
-      'When a user asks to see a specific type of incident (e.g. "show me groping reports"), use filter_incidents.',
-      'Be concise, empathetic, and action-oriented. Always prioritize user safety.',
+      'You are HeraBot, a warm and street-smart Safety Companion inside the Hera app.',
+      'Today\'s date is March 2026.',
+      'You help users feel safe and informed about their surroundings.',
+      'You can control the map and search for real incident reports.',
+      'Use search_incidents to look up real reports from the database.',
+
+      '\n\nMANDATORY MAP SYNC:',
+      '- Whenever you discuss, mention, or respond about a specific city, neighborhood, or area,',
+      '  you MUST call focus_map with the coordinates BEFORE writing your text response.',
+      '- This applies even if no incidents are found — the map must always reflect the location being discussed.',
+      '- You may call focus_map and search_incidents in the same turn.',
+      '- Common coordinates for reference:',
+      '  Toronto downtown: latitude 43.6532, longitude -79.3832',
+      '  Toronto (UTM / Mississauga area): latitude 43.5480, longitude -79.6625',
+      '  Toronto North York: latitude 43.7615, longitude -79.4111',
+      '  Toronto Scarborough: latitude 43.7731, longitude -79.2578',
+
+      '\n\nTONE & PERSONALITY:',
+      '- You are a Safety Companion, NOT a corporate bot. Sound like a knowledgeable local friend.',
+      '- Be warm, concise (2-4 sentences), and action-oriented.',
+      '- Suggest real things to do: specific parks, transit tips, well-lit routes, local events.',
+
+      '\n\nCRITICAL OUTPUT RULES:',
+      '- NEVER expose internal reasoning, tool names, <thinking> tags, XML tags, or raw JSON.',
+      '- NEVER say "I am unable to provide data", "failed to retrieve", "no data available", or any variation.',
+      '- NEVER apologize for tools, searches, or missing data.',
+
+      '\n\nVIBE SYNTHESIS (when NO incidents are found):',
+      '- If a search returns zero incidents, that is GOOD NEWS. Treat it positively.',
+      '- Respond with the general vibe of the location using your knowledge of the area and the current date (March 2026).',
+      '- Mention seasonally relevant context: March Break activities, spring weather transitions, local events',
+      '  (Sugar Shack season, St. Patrick\'s Day, Nuit Blanche, cherry blossom forecasts, patio openings).',
+      '- Example: "Things look clear and quiet in the Annex right now — great time to explore.',
+      '  March Break means the ROM and AGO will be bustling but well-staffed. Stick to well-lit streets after dark and you\'re golden."',
+
+      '\n\nINCIDENT SYNTHESIS (when incidents ARE found):',
+      '- Weave severity, category, and recency into a single conversational paragraph.',
+      '- Do NOT list raw data, numbered items, or severity scores.',
+      '- Example: "There have been a few reports of verbal harassment near King & Spadina over the past week,',
+      '  mostly during evening hours. The area around the subway entrance seems to be a recurring spot.',
+      '  Stay alert and consider well-lit routes if you\'re passing through after dark."',
+      '- Always end with practical, empowering safety advice.',
     ].join(' '),
   },
 ];
@@ -41,19 +83,13 @@ const TOOLS: Tool[] = [
     toolSpec: {
       name: 'focus_map',
       description:
-        'Pan and zoom the map to a specific location. Use this when the user mentions a city, neighborhood, or address.',
+        'Pan and zoom the map to a specific location. Use when the user mentions a city, neighborhood, or address.',
       inputSchema: {
         json: {
           type: 'object',
           properties: {
-            latitude: {
-              type: 'number',
-              description: 'Latitude of the target location.',
-            },
-            longitude: {
-              type: 'number',
-              description: 'Longitude of the target location.',
-            },
+            latitude: { type: 'number', description: 'Latitude of the target location.' },
+            longitude: { type: 'number', description: 'Longitude of the target location.' },
           },
           required: ['latitude', 'longitude'],
         },
@@ -64,15 +100,14 @@ const TOOLS: Tool[] = [
     toolSpec: {
       name: 'filter_incidents',
       description:
-        'Filter the incident markers shown on the map by category. Use "All" to remove filters and show every incident.',
+        'Filter incident markers on the map by category. Use "All" to clear filters.',
       inputSchema: {
         json: {
           type: 'object',
           properties: {
             category: {
               type: 'string',
-              description:
-                'Incident category to filter by, e.g. "Groping", "Ogling", "Commenting", or "All" to clear filters.',
+              description: 'Category to filter by, e.g. "Groping", "Ogling", "Commenting", or "All".',
             },
           },
           required: ['category'],
@@ -80,13 +115,217 @@ const TOOLS: Tool[] = [
       },
     },
   },
+  {
+    toolSpec: {
+      name: 'search_incidents',
+      description:
+        'Search the database for recent safety incident reports. Returns summaries the assistant should synthesize into a conversational answer.',
+      inputSchema: {
+        json: {
+          type: 'object',
+          properties: {
+            latitude: { type: 'number', description: 'Center latitude for the search area.' },
+            longitude: { type: 'number', description: 'Center longitude for the search area.' },
+            radius_km: {
+              type: 'number',
+              description: 'Search radius in kilometers. Default 5.',
+            },
+            category: {
+              type: 'string',
+              description: 'Optional category filter, e.g. "Groping". Omit to search all.',
+            },
+            limit: { type: 'integer', description: 'Max results to return. Default 10.' },
+          },
+          required: ['latitude', 'longitude'],
+        },
+      },
+    },
+  },
 ];
 
+// ---------------------------------------------------------------------------
+// Tool executors (server-side only — results never shown raw to user)
+// ---------------------------------------------------------------------------
+interface ToolExecResult {
+  output: string;
+  mapAction?: { type: string; payload: Record<string, unknown> };
+}
+
+async function executeTool(
+  name: string,
+  input: Record<string, unknown>
+): Promise<ToolExecResult> {
+  switch (name) {
+    case 'focus_map': {
+      const lat = Number(input.latitude);
+      const lng = Number(input.longitude);
+      return {
+        output: `Map panned to ${lat.toFixed(4)}, ${lng.toFixed(4)}.`,
+        mapAction: { type: 'focus_map', payload: { latitude: lat, longitude: lng } },
+      };
+    }
+
+    case 'filter_incidents': {
+      const category = String(input.category ?? 'All');
+      return {
+        output: `Map filtered to category: ${category}.`,
+        mapAction: { type: 'filter_incidents', payload: { category } },
+      };
+    }
+
+    case 'search_incidents': {
+      const lat = Number(input.latitude);
+      const lng = Number(input.longitude);
+      const radiusKm = Number(input.radius_km ?? 5);
+      const category = input.category ? String(input.category) : null;
+      const limit = Math.min(Number(input.limit ?? 10), 25);
+
+      try {
+        await connectDB();
+
+        const query: Record<string, unknown> = {
+          'location.coordinates': {
+            $nearSphere: {
+              $geometry: { type: 'Point', coordinates: [lng, lat] },
+              $maxDistance: radiusKm * 1000,
+            },
+          },
+        };
+        if (category && category !== 'All') {
+          query.categories = category;
+        }
+
+        const posts = await Post.find(query)
+          .sort({ created_at: -1 })
+          .limit(limit)
+          .select('raw_text categories severity_index created_at')
+          .lean();
+
+        if (posts.length === 0) {
+          return {
+            output: [
+              `Zero incidents reported within ${radiusKm}km — the area appears safe and quiet.`,
+              'Respond positively: tell the user the area looks clear,',
+              'then share the local vibe for March 2026 (March Break events, seasonal happenings, practical tips).',
+            ].join(' '),
+          };
+        }
+
+        const summaries = posts.map((p, i) => {
+          const cats = (p.categories ?? []).join(', ') || 'uncategorized';
+          const sev = p.severity_index ?? 'unknown';
+          const date = new Date(p.created_at).toLocaleDateString('en-US', {
+            month: 'short',
+            day: 'numeric',
+          });
+          const snippet =
+            p.raw_text.length > 120
+              ? p.raw_text.slice(0, 120) + '...'
+              : p.raw_text;
+          return `${i + 1}. [${date}] severity ${sev}/10, categories: ${cats} — "${snippet}"`;
+        });
+
+        return {
+          output: [
+            `Found ${posts.length} incident(s) within ${radiusKm}km:`,
+            ...summaries,
+          ].join('\n'),
+        };
+      } catch (err) {
+        console.error('search_incidents DB error:', err);
+        return {
+          output: [
+            'Search could not be completed. Respond with general safety advice for the area',
+            'and the current season (March 2026). Do NOT mention any technical issue to the user.',
+          ].join(' '),
+        };
+      }
+    }
+
+    default:
+      return { output: `Unknown tool: ${name}` };
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Post-processing: strip <thinking> tags and other internal leakage
+// ---------------------------------------------------------------------------
+const THINKING_BLOCK_RE = /<thinking>[\s\S]*?<\/thinking>/gi;
+const OPEN_THINKING_RE = /<thinking>[^<]*$/i;
+const STRAY_TAG_RE = /<\/?thinking>/gi;
+
+function stripThinkingTags(text: string): string {
+  return text
+    .replace(THINKING_BLOCK_RE, '')
+    .replace(STRAY_TAG_RE, '')
+    .replace(/^\s*\n/, '');
+}
+
+class ThinkingFilter {
+  private insideThinking = false;
+  private buffer = '';
+
+  push(chunk: string): string {
+    this.buffer += chunk;
+
+    if (this.insideThinking) {
+      const closeIdx = this.buffer.indexOf('</thinking>');
+      if (closeIdx === -1) {
+        this.buffer = '';
+        return '';
+      }
+      this.buffer = this.buffer.slice(closeIdx + '</thinking>'.length);
+      this.insideThinking = false;
+    }
+
+    const openIdx = this.buffer.indexOf('<thinking>');
+    if (openIdx !== -1) {
+      const safe = this.buffer.slice(0, openIdx);
+      const rest = this.buffer.slice(openIdx);
+      const closeIdx = rest.indexOf('</thinking>');
+      if (closeIdx !== -1) {
+        this.buffer = rest.slice(closeIdx + '</thinking>'.length);
+        this.insideThinking = false;
+        return stripThinkingTags(safe + this.flush());
+      }
+      this.buffer = rest;
+      this.insideThinking = true;
+      return safe;
+    }
+
+    if (OPEN_THINKING_RE.test(this.buffer)) {
+      const match = this.buffer.match(/<thin/i);
+      if (match && match.index !== undefined) {
+        const safe = this.buffer.slice(0, match.index);
+        this.buffer = this.buffer.slice(match.index);
+        return safe;
+      }
+    }
+
+    const out = this.buffer;
+    this.buffer = '';
+    return stripThinkingTags(out);
+  }
+
+  flush(): string {
+    const out = this.buffer;
+    this.buffer = '';
+    this.insideThinking = false;
+    return stripThinkingTags(out);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Chat message types
+// ---------------------------------------------------------------------------
 interface ChatMessage {
   role: 'user' | 'assistant';
   content: string;
 }
 
+// ---------------------------------------------------------------------------
+// POST handler — agentic loop with silent tool execution
+// ---------------------------------------------------------------------------
 export async function POST(request: NextRequest) {
   const session = await auth0.getSession();
   if (!session?.user) {
@@ -119,16 +358,68 @@ export async function POST(request: NextRequest) {
   }));
 
   const client = getBedrockClient();
+  const mapActions: { type: string; payload: Record<string, unknown> }[] = [];
 
-  const command = new ConverseStreamCommand({
-    modelId: MODEL_ID,
-    system: SYSTEM_PROMPT,
-    messages,
-    toolConfig: { tools: TOOLS },
-  });
-
+  // ---- Agentic loop: non-streaming rounds while Nova calls tools ----------
   try {
-    const response = await client.send(command);
+    let round = 0;
+    while (round < MAX_TOOL_ROUNDS) {
+      round++;
+
+      const response = await client.send(
+        new ConverseCommand({
+          modelId: MODEL_ID,
+          system: SYSTEM_PROMPT,
+          messages,
+          toolConfig: { tools: TOOLS },
+        })
+      );
+
+      const assistantContent = response.output?.message?.content ?? [];
+
+      messages.push({ role: 'assistant', content: assistantContent });
+
+      if (response.stopReason !== 'tool_use') {
+        break;
+      }
+
+      const toolResultBlocks: ContentBlock[] = [];
+
+      for (const block of assistantContent) {
+        if (!block.toolUse) continue;
+
+        const toolName = block.toolUse.name ?? 'unknown';
+        const toolInput = (block.toolUse.input as Record<string, unknown>) ?? {};
+        const toolUseId = block.toolUse.toolUseId ?? '';
+
+        const result = await executeTool(toolName, toolInput);
+
+        if (result.mapAction) {
+          mapActions.push(result.mapAction);
+        }
+
+        const resultContent: ToolResultContentBlock[] = [{ text: result.output }];
+
+        toolResultBlocks.push({
+          toolResult: {
+            toolUseId,
+            content: resultContent,
+          },
+        });
+      }
+
+      messages.push({ role: 'user', content: toolResultBlocks });
+    }
+
+    // ---- Final streaming turn: only the conversational summary ------------
+    // If the last message is already a text response from the non-streaming
+    // loop, extract and stream it. Otherwise do one more streaming call.
+
+    const lastMsg = messages[messages.length - 1];
+    const lastIsAssistantText =
+      lastMsg.role === 'assistant' &&
+      Array.isArray(lastMsg.content) &&
+      (lastMsg.content as ContentBlock[]).some((b) => b.text !== undefined);
 
     const stream = new ReadableStream({
       async start(controller) {
@@ -141,44 +432,49 @@ export async function POST(request: NextRequest) {
         }
 
         try {
-          if (!response.stream) {
-            send('error', { error: 'No stream returned from Bedrock' });
-            controller.close();
-            return;
+          // Send map actions first so the UI reacts immediately
+          for (const action of mapActions) {
+            send('map_action', action);
           }
 
-          for await (const event of response.stream) {
-            if (event.contentBlockStart?.start?.toolUse) {
-              send('tool_use_start', {
-                toolUseId: event.contentBlockStart.start.toolUse.toolUseId,
-                name: event.contentBlockStart.start.toolUse.name,
-              });
-            }
+          const filter = new ThinkingFilter();
 
-            if (event.contentBlockDelta?.delta?.text) {
-              send('text_delta', {
-                text: event.contentBlockDelta.delta.text,
-              });
+          if (lastIsAssistantText) {
+            for (const block of lastMsg.content as ContentBlock[]) {
+              if (block.text) {
+                const clean = filter.push(block.text);
+                if (clean) send('text_delta', { text: clean });
+              }
             }
+            const remaining = filter.flush();
+            if (remaining) send('text_delta', { text: remaining });
+            send('message_stop', { stopReason: 'end_turn' });
+          } else {
+            const streamResp = await client.send(
+              new ConverseStreamCommand({
+                modelId: MODEL_ID,
+                system: SYSTEM_PROMPT,
+                messages,
+                toolConfig: { tools: TOOLS },
+              })
+            );
 
-            if (event.contentBlockDelta?.delta?.toolUse) {
-              send('tool_use_delta', {
-                input: event.contentBlockDelta.delta.toolUse.input,
-              });
-            }
-
-            if (event.contentBlockStop !== undefined) {
-              send('content_block_stop', {});
-            }
-
-            if (event.messageStop) {
-              send('message_stop', {
-                stopReason: event.messageStop.stopReason,
-              });
+            if (streamResp.stream) {
+              for await (const event of streamResp.stream) {
+                if (event.contentBlockDelta?.delta?.text) {
+                  const clean = filter.push(event.contentBlockDelta.delta.text);
+                  if (clean) send('text_delta', { text: clean });
+                }
+                if (event.messageStop) {
+                  const remaining = filter.flush();
+                  if (remaining) send('text_delta', { text: remaining });
+                  send('message_stop', { stopReason: event.messageStop.stopReason });
+                }
+              }
             }
           }
         } catch (err) {
-          console.error('Bedrock stream error:', err);
+          console.error('Stream error:', err);
           send('error', { error: 'Stream interrupted' });
         } finally {
           controller.close();
@@ -194,9 +490,9 @@ export async function POST(request: NextRequest) {
       },
     });
   } catch (err) {
-    console.error('Bedrock ConverseStream failed:', err);
+    console.error('Chat handler failed:', err);
     return new Response(
-      JSON.stringify({ error: 'Failed to start chat stream' }),
+      JSON.stringify({ error: 'Failed to process chat request' }),
       { status: 500, headers: { 'Content-Type': 'application/json' } }
     );
   }

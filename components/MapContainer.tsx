@@ -89,67 +89,61 @@ export const MapContainer = forwardRef<MapContainerHandle>(
               data: geojson,
             });
 
-            map.addLayer({
-              id: HEAT_LAYER_ID,
-              type: 'heatmap',
-              source: 'reports',
-              maxzoom: 15,
-              paint: {
-                'heatmap-weight': [
-                  'interpolate',
-                  ['linear'],
-                  ['get', 'severity'],
-                  0,
-                  0,
-                  10,
-                  1,
-                ],
-                'heatmap-intensity': [
-                  'interpolate',
-                  ['linear'],
-                  ['zoom'],
-                  0,
-                  1,
-                  9,
-                  3,
-                ],
-                'heatmap-color': [
-                  'interpolate',
-                  ['linear'],
-                  ['heatmap-density'],
-                  0,
-                  'rgba(0,0,255,0)',
-                  0.1,
-                  'royalblue',
-                  0.3,
-                  'cyan',
-                  0.5,
-                  'lime',
-                  0.7,
-                  'yellow',
-                  1,
-                  'red',
-                ],
-                'heatmap-radius': [
-                  'interpolate',
-                  ['linear'],
-                  ['zoom'],
-                  0,
-                  2,
-                  9,
-                  20,
-                ],
-                'heatmap-opacity': [
-                  'interpolate',
-                  ['linear'],
-                  ['zoom'],
-                  7,
-                  1,
-                  9,
-                  0,
-                ],
+            map.addLayer(
+              {
+                id: HEAT_LAYER_ID,
+                type: 'heatmap',
+                source: 'reports',
+                maxzoom: 22,
+                paint: {
+                  'heatmap-weight': [
+                    'interpolate',
+                    ['linear'],
+                    ['get', 'severity'],
+                    0, 0,
+                    10, 1,
+                  ],
+                  'heatmap-intensity': [
+                    'interpolate',
+                    ['linear'],
+                    ['zoom'],
+                    0, 0.8,
+                    10, 2,
+                    18, 3,
+                  ],
+                  'heatmap-color': [
+                    'interpolate',
+                    ['linear'],
+                    ['heatmap-density'],
+                    0, 'rgba(0,0,255,0)',
+                    0.1, 'royalblue',
+                    0.3, 'cyan',
+                    0.5, 'lime',
+                    0.7, 'yellow',
+                    1, 'red',
+                  ],
+                  'heatmap-radius': [
+                    'interpolate',
+                    ['linear'],
+                    ['zoom'],
+                    0, 2,
+                    8, 12,
+                    13, 20,
+                    18, 30,
+                  ],
+                  'heatmap-opacity': [
+                    'interpolate',
+                    ['linear'],
+                    ['zoom'],
+                    0, 0,
+                    3, 0.8,
+                    14, 0.75,
+                    18, 0.6,
+                  ],
+                },
               },
-            });
+              'waterway-label' // render below labels & future marker layers
+            );
           } else {
             (map.getSource('reports') as mapboxgl.GeoJSONSource).setData(
               geojson

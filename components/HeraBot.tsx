@@ -70,8 +70,6 @@ export function HeraBot({ onFocusMap, onFilter }: HeraBotProps) {
       const reader = res.body.getReader();
       const decoder = new TextDecoder();
 
-      let currentToolName = '';
-      let toolInputBuffer = '';
       let buffer = '';
 
       while (true) {
@@ -107,46 +105,15 @@ export function HeraBot({ onFocusMap, onFilter }: HeraBotProps) {
                 }
                 break;
 
-              case 'tool_use_start':
-                currentToolName = (data.name as string) ?? '';
-                toolInputBuffer = '';
-                break;
-
-              case 'tool_use_delta':
-                if (typeof data.input === 'string') {
-                  toolInputBuffer += data.input;
+              case 'map_action': {
+                const payload = data.payload as Record<string, unknown> | undefined;
+                if (data.type === 'focus_map' && payload) {
+                  onFocusMap(Number(payload.latitude), Number(payload.longitude));
+                } else if (data.type === 'filter_incidents' && payload) {
+                  onFilter(String(payload.category));
                 }
                 break;
-
-              case 'content_block_stop':
-                if (currentToolName) {
-                  try {
-                    const args = JSON.parse(toolInputBuffer);
-                    if (
-                      currentToolName === 'focus_map' &&
-                      typeof args.latitude === 'number' &&
-                      typeof args.longitude === 'number'
-                    ) {
-                      onFocusMap(args.latitude, args.longitude);
-                      appendToLastAssistant(
-                        `\n_Panning map to ${args.latitude.toFixed(4)}, ${args.longitude.toFixed(4)}_\n`
-                      );
-                    } else if (
-                      currentToolName === 'filter_incidents' &&
-                      typeof args.category === 'string'
-                    ) {
-                      onFilter(args.category);
-                      appendToLastAssistant(
-                        `\n_Filtering incidents: ${args.category}_\n`
-                      );
-                    }
-                  } catch {
-                    /* malformed tool JSON — skip */
-                  }
-                  currentToolName = '';
-                  toolInputBuffer = '';
-                }
-                break;
+              }
 
               case 'error':
                 appendToLastAssistant(
