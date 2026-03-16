@@ -29,7 +29,7 @@ export function MapContainer() {
 
     mapboxgl.accessToken = MAPBOX_TOKEN;
 
-    const initializeMap = (geojson: any) => {
+    const initializeMap = (geojson: GeoJSON.FeatureCollection & { defaultCenter?: [number, number]; defaultZoom?: number }) => {
       const defaultCenter: [number, number] =
         geojson?.defaultCenter ?? [-98.5795, 39.8283];
       const defaultZoom: number =

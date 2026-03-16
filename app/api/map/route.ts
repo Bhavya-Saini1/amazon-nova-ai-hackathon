@@ -5,18 +5,22 @@ import { Post } from '@/lib/models/Post';
 
 export const dynamic = 'force-dynamic';
 
+interface LegacyPostFields {
+  latitude?: number;
+  longitude?: number;
+  severity?: string | number;
+}
+
 export async function GET() {
   await connectDB();
 
-  // Query posts that have a valid GeoJSON location (new schema)
-  // OR legacy latitude/longitude fields (old schema) for backward-compat
   const posts = await Post.find({
     $or: [
       { 'location.coordinates': { $exists: true } },
       { latitude: { $ne: null }, longitude: { $ne: null } },
     ],
   })
-    .select('location severity_index severity')
+    .select('location severity_index severity latitude longitude')
     .lean();
 
   const features = (posts ?? []).flatMap((post) => {
@@ -31,13 +35,10 @@ export async function GET() {
       [lng, lat] = post.location.coordinates;
     }
 
-    if (
-      lng === undefined &&
-      typeof (post as any).latitude === 'number' &&
-      typeof (post as any).longitude === 'number'
-    ) {
-      lat = (post as any).latitude;
-      lng = (post as any).longitude;
+    const legacy = post as unknown as LegacyPostFields;
+    if (lng === undefined && typeof legacy.latitude === 'number' && typeof legacy.longitude === 'number') {
+      lat = legacy.latitude;
+      lng = legacy.longitude;
     }
 
     if (
@@ -51,8 +52,7 @@ export async function GET() {
       return [];
     }
 
-    // Prefer the new numeric severity_index (1-10); fall back to legacy string label
-    const severityRaw = post.severity_index ?? (post as any).severity;
+    const severityRaw = post.severity_index ?? legacy.severity;
     const severity =
       typeof severityRaw === 'number' && Number.isFinite(severityRaw)
         ? Math.min(10, Math.max(0, severityRaw))
@@ -67,7 +67,6 @@ export async function GET() {
     ];
   });
 
-  // Default map view: Mississauga, Ontario
   const defaultCenter: [number, number] = [-79.6441, 43.589];
   const defaultZoom = 12.5;
 
