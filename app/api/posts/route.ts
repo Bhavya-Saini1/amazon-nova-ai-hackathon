@@ -1,9 +1,4 @@
 import { NextRequest, NextResponse } from 'next/server';
-import {
-  BedrockRuntimeClient,
-  ConverseCommand,
-  type ConverseCommandInput,
-} from '@aws-sdk/client-bedrock-runtime';
 import { auth0 } from '@/lib/auth0';
 import { connectDB } from '@/lib/db/mongodb';
 import { Post } from '@/lib/models/Post';
@@ -13,22 +8,9 @@ import { serializePost } from '@/lib/posts';
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
-const MODEL_ID = 'amazon.nova-lite-v1:0';
 const CATEGORY_SERVICE_URL =
   process.env.CATEGORY_SERVICE_URL ?? 'http://127.0.0.1:8000';
-
-// ---------------------------------------------------------------------------
-// Bedrock client
-// ---------------------------------------------------------------------------
-function getBedrockClient() {
-  return new BedrockRuntimeClient({
-    region: process.env.AWS_REGION ?? 'us-east-1',
-    credentials: {
-      accessKeyId: process.env.AWS_ACCESS_KEY_ID!,
-      secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY!,
-    },
-  });
-}
+const ML_SEVERITY_API_URL = process.env.ML_SEVERITY_API_URL;
 
 // ---------------------------------------------------------------------------
 // Step 1 — Local category model (FastAPI at :8000/predict)
@@ -55,81 +37,41 @@ async function fetchCategories(text: string): Promise<string[]> {
 }
 
 // ---------------------------------------------------------------------------
-// Steps 2 + 3 — Bedrock Nova severity assessment (with categories as context)
+// Step 2 — ML regression model for severity (external API)
 // ---------------------------------------------------------------------------
-async function assessSeverity(
-  text: string,
-  categories: string[]
-): Promise<number> {
-  const client = getBedrockClient();
+const SEVERITY_TIMEOUT_MS = 3000;
+const SEVERITY_FALLBACK = 5;
 
-  const prompt = [
-    'You are a safety incident severity assessor.',
-    'An incident report has already been classified into the following categories by our category model:',
-    `  Categories: ${JSON.stringify(categories)}`,
-    '',
-    'Given the original report text AND these categories, call the assess_severity tool with the appropriate severity rating.',
-    '',
-    'Incident report:',
-    '"""',
-    text,
-    '"""',
-  ].join('\n');
-
-  const input: ConverseCommandInput = {
-    modelId: MODEL_ID,
-    messages: [{ role: 'user', content: [{ text: prompt }] }],
-    toolConfig: {
-      tools: [
-        {
-          toolSpec: {
-            name: 'assess_severity',
-            description:
-              'Assign a severity rating to an incident report that has already been categorized.',
-            inputSchema: {
-              json: {
-                type: 'object',
-                properties: {
-                  severity_index: {
-                    type: 'integer',
-                    minimum: 1,
-                    maximum: 10,
-                    description:
-                      'Overall severity on a scale of 1 (minor annoyance) to 10 (extreme / life-threatening).',
-                  },
-                },
-                required: ['severity_index'],
-              },
-            },
-          },
-        },
-      ],
-      toolChoice: { tool: { name: 'assess_severity' } },
-    },
-  };
-
-  const response = await client.send(new ConverseCommand(input));
-
-  const toolUseBlock = response.output?.message?.content?.find(
-    (block) => block.toolUse !== undefined
-  );
-
-  if (!toolUseBlock?.toolUse?.input) {
-    throw new Error('Nova did not return a tool-use response');
+async function assessSeverity(text: string): Promise<number> {
+  if (!ML_SEVERITY_API_URL) {
+    console.warn('[severity] ML_SEVERITY_API_URL not set — using fallback');
+    return SEVERITY_FALLBACK;
   }
 
-  const toolInput = toolUseBlock.toolUse.input as Record<string, unknown>;
-  const severity_index = Number(toolInput.severity_index);
+  try {
+    const res = await fetch(ML_SEVERITY_API_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text }),
+      signal: AbortSignal.timeout(SEVERITY_TIMEOUT_MS),
+    });
 
-  if (
-    !Number.isInteger(severity_index) ||
-    severity_index < 1 ||
-    severity_index > 10
-  ) {
-    throw new Error(`Invalid severity_index from model: ${severity_index}`);
+    if (!res.ok) {
+      throw new Error(`ML severity API responded with ${res.status}`);
+    }
+
+    const data = await res.json();
+    const raw = Number(data.severity ?? data.severity_index ?? data.score);
+
+    if (!Number.isFinite(raw)) {
+      throw new Error(`Non-numeric severity from ML API: ${JSON.stringify(data)}`);
+    }
+
+    return Math.max(1, Math.min(10, Math.round(raw)));
+  } catch (err) {
+    console.error('[severity] ML API failed, defaulting to', SEVERITY_FALLBACK, err);
+    return SEVERITY_FALLBACK;
   }
-
-  return severity_index;
 }
 
 // ---------------------------------------------------------------------------
@@ -206,8 +148,8 @@ export async function POST(request: NextRequest) {
       categories = [];
     }
 
-    // --- Steps 2+3: Severity from Bedrock Nova (with categories context) ---
-    const severity_index = await assessSeverity(text, categories);
+    // --- Step 2: Severity from ML regression model -------------------------
+    const severity_index = await assessSeverity(text);
 
     // --- Step 4: Save to MongoDB -------------------------------------------
     await connectDB();

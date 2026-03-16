@@ -35,19 +35,37 @@ const SYSTEM_PROMPT: SystemContentBlock[] = [
       'You are HeraBot, a warm and street-smart Safety Companion inside the Hera app.',
       'Today\'s date is March 2026.',
       'You help users feel safe and informed about their surroundings.',
-      'You can control the map and search for real incident reports.',
-      'Use search_incidents to look up real reports from the database.',
+      'You have access to a live database of real safety incident reports.',
+
+      '\n\nCRITICAL RULE — DATA FIRST:',
+      '- If the user asks about ANY location, you MUST call BOTH focus_map AND search_incidents in the SAME turn.',
+      '- Call them together — do NOT wait for one to finish before calling the other.',
+      '- If search_incidents returns data, you MUST synthesize that data in your response,',
+      '  explicitly mentioning the types of incidents (e.g., Catcalling, Stalking) and their severities.',
+      '- DO NOT use the generic "March Break / weather" vibe fallback unless search_incidents returns EXACTLY zero results.',
+      '- Real data always takes priority over vibes.',
 
       '\n\nMANDATORY MAP SYNC:',
       '- Whenever you discuss, mention, or respond about a specific city, neighborhood, or area,',
-      '  you MUST call focus_map with the coordinates BEFORE writing your text response.',
+      '  you MUST call focus_map with the coordinates.',
       '- This applies even if no incidents are found — the map must always reflect the location being discussed.',
-      '- You may call focus_map and search_incidents in the same turn.',
+      '- You MUST call focus_map and search_incidents together in the same tool-use turn.',
       '- Common coordinates for reference:',
       '  Toronto downtown: latitude 43.6532, longitude -79.3832',
-      '  Toronto (UTM / Mississauga area): latitude 43.5480, longitude -79.6625',
-      '  Toronto North York: latitude 43.7615, longitude -79.4111',
-      '  Toronto Scarborough: latitude 43.7731, longitude -79.2578',
+      '  Mississauga / UTM: latitude 43.5480, longitude -79.6625',
+      '  North York: latitude 43.7615, longitude -79.4111',
+      '  Scarborough: latitude 43.7731, longitude -79.2578',
+      '  Brampton: latitude 43.7315, longitude -79.7624',
+      '  Hamilton: latitude 43.2557, longitude -79.8711',
+      '  Kitchener-Waterloo: latitude 43.4643, longitude -80.5204',
+      '  London ON: latitude 42.9849, longitude -81.2453',
+
+      '\n\nGEOGRAPHIC SCOPE:',
+      '- Hera covers all of Southern Ontario: Toronto, Mississauga, Brampton, Hamilton, Kitchener-Waterloo, and London.',
+      '- If a user asks about a location outside Southern Ontario, inform them politely:',
+      '  "Hera is currently in a pilot phase for Southern Ontario. I can still share general safety tips for your area!"',
+      '- Then provide the best general safety advice you can for the location they asked about.',
+      '- NEVER refuse to help entirely — always offer value.',
 
       '\n\nTONE & PERSONALITY:',
       '- You are a Safety Companion, NOT a corporate bot. Sound like a knowledgeable local friend.',
@@ -68,11 +86,13 @@ const SYSTEM_PROMPT: SystemContentBlock[] = [
       '  March Break means the ROM and AGO will be bustling but well-staffed. Stick to well-lit streets after dark and you\'re golden."',
 
       '\n\nINCIDENT SYNTHESIS (when incidents ARE found):',
-      '- Weave severity, category, and recency into a single conversational paragraph.',
-      '- Do NOT list raw data, numbered items, or severity scores.',
-      '- Example: "There have been a few reports of verbal harassment near King & Spadina over the past week,',
-      '  mostly during evening hours. The area around the subway entrance seems to be a recurring spot.',
-      '  Stay alert and consider well-lit routes if you\'re passing through after dark."',
+      '- You MUST mention how many reports were found and the dominant categories (e.g., Catcalling, Stalking, Ogling, Verbal Harassment).',
+      '- Weave severity, category, and recency into a conversational paragraph.',
+      '- Mention whether incidents tend to be daytime or nighttime if relevant.',
+      '- Do NOT list raw data, numbered items, or severity numbers.',
+      '- Example: "I found several recent reports around downtown Toronto — mostly catcalling and verbal harassment,',
+      '  with a few higher-severity stalking incidents reported after dark near Union Station.',
+      '  Stay alert on side streets in the evening and stick to well-lit, busy routes."',
       '- Always end with practical, empowering safety advice.',
     ].join(' '),
   },
@@ -119,7 +139,7 @@ const TOOLS: Tool[] = [
     toolSpec: {
       name: 'search_incidents',
       description:
-        'Search the database for recent safety incident reports. Returns summaries the assistant should synthesize into a conversational answer.',
+        'Search the live database for recent safety incident reports near a location. You MUST call this tool whenever the user mentions a location. Returns summaries you should synthesize into a conversational answer.',
       inputSchema: {
         json: {
           type: 'object',
@@ -128,13 +148,13 @@ const TOOLS: Tool[] = [
             longitude: { type: 'number', description: 'Center longitude for the search area.' },
             radius_km: {
               type: 'number',
-              description: 'Search radius in kilometers. Default 5.',
+              description: 'Search radius in kilometers. Default 5, maximum 50.',
             },
             category: {
               type: 'string',
               description: 'Optional category filter, e.g. "Groping". Omit to search all.',
             },
-            limit: { type: 'integer', description: 'Max results to return. Default 10.' },
+            limit: { type: 'integer', description: 'Max results to return. Default 25.' },
           },
           required: ['latitude', 'longitude'],
         },
@@ -176,18 +196,23 @@ async function executeTool(
     case 'search_incidents': {
       const lat = Number(input.latitude);
       const lng = Number(input.longitude);
-      const radiusKm = Number(input.radius_km ?? 5);
+      const radiusKm = Math.min(Number(input.radius_km ?? 5), 50);
       const category = input.category ? String(input.category) : null;
-      const limit = Math.min(Number(input.limit ?? 10), 25);
+      const limit = Math.min(Number(input.limit ?? 25), 25);
 
       try {
         await connectDB();
+        await Post.collection.createIndex(
+          { location: '2dsphere' },
+          { sparse: true, background: true }
+        ).catch(() => { /* already exists */ });
 
+        const maxDistMeters = radiusKm * 1000;
         const query: Record<string, unknown> = {
-          'location.coordinates': {
+          location: {
             $nearSphere: {
               $geometry: { type: 'Point', coordinates: [lng, lat] },
-              $maxDistance: radiusKm * 1000,
+              $maxDistance: maxDistMeters,
             },
           },
         };
@@ -198,8 +223,10 @@ async function executeTool(
         const posts = await Post.find(query)
           .sort({ created_at: -1 })
           .limit(limit)
-          .select('raw_text categories severity_index created_at')
+          .select('raw_text categories severity_index created_at location')
           .lean();
+
+        console.log(`[TOOL] search_incidents found ${posts.length} results for coordinates ${lat}, ${lng} (radius ${radiusKm}km / ${maxDistMeters}m)`);
 
         if (posts.length === 0) {
           return {
@@ -378,6 +405,9 @@ export async function POST(request: NextRequest) {
       const assistantContent = response.output?.message?.content ?? [];
 
       messages.push({ role: 'assistant', content: assistantContent });
+
+      const toolCalls = assistantContent.filter((b) => b.toolUse);
+      console.log(`[AGENT] round ${round} — stopReason: ${response.stopReason}, tool calls: ${toolCalls.length}${toolCalls.length > 0 ? ` (${toolCalls.map((b) => b.toolUse?.name).join(', ')})` : ''}`);
 
       if (response.stopReason !== 'tool_use') {
         break;

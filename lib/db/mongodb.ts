@@ -33,7 +33,11 @@ export async function connectDB() {
 
     mongooseCache.promise = mongoose
       .connect(MONGODB_URI!, opts)
-      .then((mongoose) => {
+      .then(async (mongoose) => {
+        await mongoose.connection.db?.collection('posts').createIndex(
+          { location: '2dsphere' },
+          { sparse: true, background: true }
+        ).catch(() => { /* index may already exist */ });
         return mongoose;
       });
   }
