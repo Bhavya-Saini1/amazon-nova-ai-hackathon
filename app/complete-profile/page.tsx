@@ -1,3 +1,5 @@
+export const dynamic = 'force-dynamic';
+
 import { requireIncompleteProfile } from '@/lib/auth-guards';
 import { CompleteProfileForm } from '@/components/CompleteProfileForm';
 
