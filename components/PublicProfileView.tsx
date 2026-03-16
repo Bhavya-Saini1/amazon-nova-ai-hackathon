@@ -6,6 +6,8 @@ import { PostCard } from '@/components/PostCard';
 interface PublicPost {
   _id: string;
   raw_text: string;
+  categories?: string[];
+  severity_index?: number | null;
   category?: string | null;
   severity?: string | null;
   location_text?: string | null;
@@ -141,7 +143,8 @@ export function PublicProfileView({
                 username={post.author_name}
                 rawText={post.raw_text}
                 timestamp={post.created_at}
-                category={post.category}
+                categories={post.categories}
+                severityIndex={post.severity_index}
                 severity={post.severity}
                 location={post.location_text}
                 visibilityLabel={post.visibility_label}

@@ -10,6 +10,7 @@ import { Post } from '@/lib/models/Post';
 import { findOrCreateUserFromSessionUser, hasCompleteProfile } from '@/lib/profile';
 import { serializePost } from '@/lib/posts';
 
+export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 const MODEL_ID = 'amazon.nova-lite-v1:0';

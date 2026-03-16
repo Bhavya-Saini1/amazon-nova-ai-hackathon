@@ -8,6 +8,7 @@ import {
 } from '@aws-sdk/client-bedrock-runtime';
 import { auth0 } from '@/lib/auth0';
 
+export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 const MODEL_ID = 'amazon.nova-lite-v1:0';

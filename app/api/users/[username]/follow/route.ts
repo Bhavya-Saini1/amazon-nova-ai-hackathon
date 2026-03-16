@@ -1,3 +1,5 @@
+export const runtime = 'nodejs';
+
 import { NextRequest, NextResponse } from 'next/server';
 import { connectDB } from '@/lib/db/mongodb';
 import { getFollowCounts, followUser, isFollowingUser, unfollowUser } from '@/lib/follows';

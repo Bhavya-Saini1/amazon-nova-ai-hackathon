@@ -3,6 +3,7 @@ import { NextResponse } from 'next/server';
 import { connectDB } from '@/lib/db/mongodb';
 import { Post } from '@/lib/models/Post';
 
+export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 interface LegacyPostFields {
