@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useUser } from '@auth0/nextjs-auth0/client';
 import { AppHeader } from '@/components/AppHeader';
@@ -13,6 +13,23 @@ export default function CreatePost() {
   const [isAnonymous, setIsAnonymous] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState('');
+  const [coords, setCoords] = useState<{ lat: number; lng: number } | null>(null);
+  const [geoStatus, setGeoStatus] = useState<'loading' | 'granted' | 'denied'>('loading');
+
+  useEffect(() => {
+    if (!navigator.geolocation) {
+      setGeoStatus('denied');
+      return;
+    }
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        setCoords({ lat: pos.coords.latitude, lng: pos.coords.longitude });
+        setGeoStatus('granted');
+      },
+      () => setGeoStatus('denied'),
+      { enableHighAccuracy: true, timeout: 8000 }
+    );
+  }, []);
 
   if (isLoading) {
     return (
@@ -57,7 +74,9 @@ export default function CreatePost() {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          raw_text: rawText,
+          text: rawText,
+          latitude: coords?.lat ?? null,
+          longitude: coords?.lng ?? null,
           location_text: locationText || null,
           is_anonymous: isAnonymous,
         }),
@@ -121,7 +140,11 @@ export default function CreatePost() {
               placeholder="Where did this happen? (e.g., Club Mansion, Main Street)"
               className="w-full rounded-2xl border border-white/14 bg-white/10 px-4 py-3 text-white outline-none transition placeholder:text-[#c3b8d9] focus:border-[#b799ff] focus:ring-4 focus:ring-[#a98be91f]"
             />
-            <p className="mt-2 text-sm text-[#d8cfee]">Will be geocoded later</p>
+            <p className="mt-2 text-sm text-[#d8cfee]">
+              {geoStatus === 'loading' && '📍 Getting your location...'}
+              {geoStatus === 'granted' && `📍 Location acquired (${coords!.lat.toFixed(4)}, ${coords!.lng.toFixed(4)})`}
+              {geoStatus === 'denied' && '📍 Location unavailable — will default to Downtown Toronto'}
+            </p>
           </div>
 
           <div className="brand-glass-panel mb-6 p-4">
@@ -168,9 +191,10 @@ export default function CreatePost() {
         <div className="brand-glass-panel mt-8 p-5">
           <h3 className="mb-2 font-semibold text-white">What happens next?</h3>
           <ul className="space-y-1 text-sm text-[#d8cfee]">
-            <li>✓ Your report is stored securely</li>
-            <li>✓ Category and severity will be analyzed later</li>
-            <li>✓ Your location will be geocoded for the heatmap</li>
+            <li>✓ Your report is analyzed by our ML models instantly</li>
+            <li>✓ Category (Catcalling, Stalking, etc.) assigned automatically</li>
+            <li>✓ Severity (1-10) scored by our regression model</li>
+            <li>✓ Appears on the heatmap immediately</li>
             <li>✓ Community insights help everyone stay safer</li>
           </ul>
         </div>

@@ -21,19 +21,41 @@ interface CategoryPrediction {
 }
 
 async function fetchCategories(text: string): Promise<string[]> {
-  const res = await fetch(`${CATEGORY_SERVICE_URL}/predict`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ text }),
-    signal: AbortSignal.timeout(10_000),
-  });
+  try {
+    const res = await fetch(`${CATEGORY_SERVICE_URL}/predict`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text }),
+      signal: AbortSignal.timeout(5_000),
+    });
 
-  if (!res.ok) {
-    throw new Error(`Category service responded with ${res.status}`);
+    if (!res.ok) {
+      throw new Error(`Category service responded with ${res.status}`);
+    }
+
+    const data = (await res.json()) as { predictions: CategoryPrediction[] };
+    const cats = data.predictions.map((p) => p.category);
+    if (cats.length > 0) return cats;
+  } catch (err) {
+    console.error('[categories] ML service failed, using keyword fallback:', err);
   }
 
-  const data = (await res.json()) as { predictions: CategoryPrediction[] };
-  return data.predictions.map((p) => p.category);
+  return keywordCategoryFallback(text);
+}
+
+const KEYWORD_CATEGORIES: [RegExp, string][] = [
+  [/\b(follow|stalk|trail|track|watch(?:ing)?\s+me)\b/i, 'Stalking'],
+  [/\b(grop|touch|grab|hand|felt\s+up)\b/i, 'Groping'],
+  [/\b(star|ogl|look(?:ing)?\s+(?:me|at)|eye)\b/i, 'Ogling'],
+  [/\b(yell|shout|catcall|whistle|honk|kiss(?:ing)?\s+noise|crude|vulgar)\b/i, 'Catcalling'],
+  [/\b(threaten|slur|swear|insult|scream|aggressive|block|harass)\b/i, 'Verbal Harassment'],
+];
+
+function keywordCategoryFallback(text: string): string[] {
+  const matched = KEYWORD_CATEGORIES
+    .filter(([re]) => re.test(text))
+    .map(([, cat]) => cat);
+  return matched.length > 0 ? [...new Set(matched)] : ['Verbal Harassment'];
 }
 
 // ---------------------------------------------------------------------------
@@ -120,7 +142,11 @@ export async function POST(request: NextRequest) {
 
     const body = await request.json();
 
-    const text = typeof body.text === 'string' ? body.text.trim() : '';
+    const text = typeof body.text === 'string'
+      ? body.text.trim()
+      : typeof body.raw_text === 'string'
+        ? body.raw_text.trim()
+        : '';
     if (!text) {
       return NextResponse.json(
         { error: '`text` is required' },
@@ -128,25 +154,17 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const latitude = parseNumericCoordinate(body.latitude, 90);
-    const longitude = parseNumericCoordinate(body.longitude, 180);
-    if (latitude === null || longitude === null) {
-      return NextResponse.json(
-        { error: '`latitude` and `longitude` are required numeric values' },
-        { status: 400 }
-      );
-    }
+    const DEFAULT_LAT = 43.6532;  // Downtown Toronto fallback
+    const DEFAULT_LNG = -79.3832;
+
+    const latitude = parseNumericCoordinate(body.latitude, 90) ?? DEFAULT_LAT;
+    const longitude = parseNumericCoordinate(body.longitude, 180) ?? DEFAULT_LNG;
 
     const is_anonymous = Boolean(body.is_anonymous);
+    const location_text = typeof body.location_text === 'string' ? body.location_text.trim() : null;
 
-    // --- Step 1: Categories from local FastAPI model -----------------------
-    let categories: string[];
-    try {
-      categories = await fetchCategories(text);
-    } catch (err) {
-      console.error('Category service unreachable, falling back to empty:', err);
-      categories = [];
-    }
+    // --- Step 1: Categories from ML model (with keyword fallback) ----------
+    const categories = await fetchCategories(text);
 
     // --- Step 2: Severity from ML regression model -------------------------
     const severity_index = await assessSeverity(text);
@@ -174,6 +192,7 @@ export async function POST(request: NextRequest) {
       severity_index,
       is_anonymous,
       location,
+      location_text,
     });
 
     await post.populate('user_id', 'username email auth0_id');
