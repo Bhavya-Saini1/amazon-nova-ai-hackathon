@@ -5,30 +5,55 @@ interface PostCardProps {
   username: string;
   rawText: string;
   timestamp: string;
-  category?: string | null;
+  categories?: string[];
+  severityIndex?: number | null;
   severity?: string | null;
   location?: string | null;
   visibilityLabel?: string | null;
 }
 
+function severityLabel(index: number): string {
+  if (index <= 3) return 'Low';
+  if (index <= 6) return 'Medium';
+  return 'High';
+}
+
+function severityBadgeClass(index: number): string {
+  if (index <= 3) return 'border border-yellow-200 bg-yellow-50 text-yellow-800';
+  if (index <= 6) return 'border border-orange-200 bg-orange-50 text-orange-800';
+  return 'border border-red-200 bg-red-50 text-red-700';
+}
+
+const legacySeverityBadge: Record<string, string> = {
+  low: 'border border-yellow-200 bg-yellow-50 text-yellow-800',
+  medium: 'border border-orange-200 bg-orange-50 text-orange-800',
+  high: 'border border-red-200 bg-red-50 text-red-700',
+};
+
 export function PostCard({
   username,
   rawText,
   timestamp,
-  category,
+  categories,
+  severityIndex,
   severity,
   location,
   visibilityLabel,
 }: PostCardProps) {
   const preview = rawText.length > 300 ? rawText.substring(0, 300) + '...' : rawText;
-  
   const formattedTime = formatTimeAgo(new Date(timestamp));
 
-  const severityBadgeColor: Record<string, string> = {
-    low: 'border border-yellow-200 bg-yellow-50 text-yellow-800',
-    medium: 'border border-orange-200 bg-orange-50 text-orange-800',
-    high: 'border border-red-200 bg-red-50 text-red-700',
-  };
+  const hasSeverityIndex = typeof severityIndex === 'number' && severityIndex >= 1;
+  const badgeText = hasSeverityIndex
+    ? `${severityLabel(severityIndex)} (${severityIndex}/10)`
+    : severity
+      ? String(severity)
+      : null;
+  const badgeClass = hasSeverityIndex
+    ? severityBadgeClass(severityIndex)
+    : severity
+      ? legacySeverityBadge[String(severity).toLowerCase()] ?? 'border border-gray-200 bg-gray-100 text-gray-800'
+      : '';
 
   return (
     <article className="brand-glass-card brand-glass-card-hover group relative overflow-hidden rounded-[28px] p-5">
@@ -43,9 +68,9 @@ export function PostCard({
             <p className="text-xs text-[#d8cfee]">{formattedTime}</p>
           </div>
         </div>
-        {severity && (
-          <div className={`rounded-full px-2.5 py-1 text-xs font-medium ${severityBadgeColor[severity.toLowerCase()] || 'border border-gray-200 bg-gray-100 text-gray-800'}`}>
-            {severity}
+        {badgeText && (
+          <div className={`rounded-full px-2.5 py-1 text-xs font-medium ${badgeClass}`}>
+            {badgeText}
           </div>
         )}
       </div>
@@ -58,11 +83,20 @@ export function PostCard({
             {visibilityLabel}
           </span>
         )}
-        {category && (
-          <span className="inline-block rounded-full border border-white/14 bg-white/8 px-2.5 py-1 text-xs font-medium text-[#e8dcfb] backdrop-blur-sm">
-            {category}
-          </span>
-        )}
+        {categories && categories.length > 0
+          ? categories.map((cat) => (
+              <span
+                key={cat}
+                className="inline-block rounded-full border border-white/14 bg-white/8 px-2.5 py-1 text-xs font-medium text-[#e8dcfb] backdrop-blur-sm"
+              >
+                {cat}
+              </span>
+            ))
+          : severity && (
+              <span className="inline-block rounded-full border border-white/14 bg-white/8 px-2.5 py-1 text-xs font-medium text-[#e8dcfb] backdrop-blur-sm">
+                {String(severity)}
+              </span>
+            )}
         {location && (
           <span className="inline-flex items-center gap-1 rounded-full border border-white/14 bg-white/8 px-2.5 py-1 text-xs text-[#eedffc] backdrop-blur-sm">
             <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20">

@@ -13,10 +13,11 @@ import { serializePost } from '@/lib/posts';
 export const dynamic = 'force-dynamic';
 
 const MODEL_ID = 'amazon.nova-lite-v1:0';
+const CATEGORY_SERVICE_URL =
+  process.env.CATEGORY_SERVICE_URL ?? 'http://127.0.0.1:8000';
 
 // ---------------------------------------------------------------------------
-// Bedrock client — credentials are picked up from env vars automatically:
-//   AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_REGION
+// Bedrock client
 // ---------------------------------------------------------------------------
 function getBedrockClient() {
   return new BedrockRuntimeClient({
@@ -28,33 +29,62 @@ function getBedrockClient() {
   });
 }
 
-interface IncidentAnalysis {
-  severity_index: number;
-  categories: string[];
+// ---------------------------------------------------------------------------
+// Step 1 — Local category model (FastAPI at :8000/predict)
+// ---------------------------------------------------------------------------
+interface CategoryPrediction {
+  category: string;
+  score: number;
 }
 
-async function analyzeIncident(text: string): Promise<IncidentAnalysis> {
+async function fetchCategories(text: string): Promise<string[]> {
+  const res = await fetch(`${CATEGORY_SERVICE_URL}/predict`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ text }),
+    signal: AbortSignal.timeout(10_000),
+  });
+
+  if (!res.ok) {
+    throw new Error(`Category service responded with ${res.status}`);
+  }
+
+  const data = (await res.json()) as { predictions: CategoryPrediction[] };
+  return data.predictions.map((p) => p.category);
+}
+
+// ---------------------------------------------------------------------------
+// Steps 2 + 3 — Bedrock Nova severity assessment (with categories as context)
+// ---------------------------------------------------------------------------
+async function assessSeverity(
+  text: string,
+  categories: string[]
+): Promise<number> {
   const client = getBedrockClient();
+
+  const prompt = [
+    'You are a safety incident severity assessor.',
+    'An incident report has already been classified into the following categories by our category model:',
+    `  Categories: ${JSON.stringify(categories)}`,
+    '',
+    'Given the original report text AND these categories, call the assess_severity tool with the appropriate severity rating.',
+    '',
+    'Incident report:',
+    '"""',
+    text,
+    '"""',
+  ].join('\n');
 
   const input: ConverseCommandInput = {
     modelId: MODEL_ID,
-    messages: [
-      {
-        role: 'user',
-        content: [
-          {
-            text: `You are a safety incident classifier. Analyze the following incident report and call the categorize_incident tool with your assessment.\n\nIncident report:\n"""\n${text}\n"""`,
-          },
-        ],
-      },
-    ],
+    messages: [{ role: 'user', content: [{ text: prompt }] }],
     toolConfig: {
       tools: [
         {
           toolSpec: {
-            name: 'categorize_incident',
+            name: 'assess_severity',
             description:
-              'Classify a harassment or safety incident report by severity and category.',
+              'Assign a severity rating to an incident report that has already been categorized.',
             inputSchema: {
               json: {
                 type: 'object',
@@ -64,28 +94,21 @@ async function analyzeIncident(text: string): Promise<IncidentAnalysis> {
                     minimum: 1,
                     maximum: 10,
                     description:
-                      'Overall severity on a scale of 1 (minor) to 10 (extreme/life-threatening).',
-                  },
-                  categories: {
-                    type: 'array',
-                    items: { type: 'string' },
-                    description:
-                      'List of harassment types that apply, e.g. ["verbal_harassment", "stalking", "sexual_harassment"].',
+                      'Overall severity on a scale of 1 (minor annoyance) to 10 (extreme / life-threatening).',
                   },
                 },
-                required: ['severity_index', 'categories'],
+                required: ['severity_index'],
               },
             },
           },
         },
       ],
-      toolChoice: { tool: { name: 'categorize_incident' } },
+      toolChoice: { tool: { name: 'assess_severity' } },
     },
   };
 
   const response = await client.send(new ConverseCommand(input));
 
-  // Extract the tool-use block from the response
   const toolUseBlock = response.output?.message?.content?.find(
     (block) => block.toolUse !== undefined
   );
@@ -96,21 +119,25 @@ async function analyzeIncident(text: string): Promise<IncidentAnalysis> {
 
   const toolInput = toolUseBlock.toolUse.input as Record<string, unknown>;
   const severity_index = Number(toolInput.severity_index);
-  const categories = Array.isArray(toolInput.categories)
-    ? (toolInput.categories as string[])
-    : [];
 
-  if (!Number.isInteger(severity_index) || severity_index < 1 || severity_index > 10) {
+  if (
+    !Number.isInteger(severity_index) ||
+    severity_index < 1 ||
+    severity_index > 10
+  ) {
     throw new Error(`Invalid severity_index from model: ${severity_index}`);
   }
 
-  return { severity_index, categories };
+  return severity_index;
 }
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
-function parseNumericCoordinate(value: unknown, maxAbs: number): number | null {
+function parseNumericCoordinate(
+  value: unknown,
+  maxAbs: number
+): number | null {
   const n = typeof value === 'string' ? parseFloat(value) : Number(value);
   if (!Number.isFinite(n) || Math.abs(n) > maxAbs) return null;
   return n;
@@ -131,12 +158,15 @@ export async function GET() {
     return NextResponse.json(posts.map(serializePost), { status: 200 });
   } catch (error) {
     console.error('Error fetching posts:', error);
-    return NextResponse.json({ error: 'Failed to fetch posts' }, { status: 500 });
+    return NextResponse.json(
+      { error: 'Failed to fetch posts' },
+      { status: 500 }
+    );
   }
 }
 
 // ---------------------------------------------------------------------------
-// POST — create a new incident report
+// POST — create a new incident report (dual-model pipeline)
 // ---------------------------------------------------------------------------
 export async function POST(request: NextRequest) {
   try {
@@ -149,12 +179,14 @@ export async function POST(request: NextRequest) {
 
     const text = typeof body.text === 'string' ? body.text.trim() : '';
     if (!text) {
-      return NextResponse.json({ error: '`text` is required' }, { status: 400 });
+      return NextResponse.json(
+        { error: '`text` is required' },
+        { status: 400 }
+      );
     }
 
     const latitude = parseNumericCoordinate(body.latitude, 90);
     const longitude = parseNumericCoordinate(body.longitude, 180);
-
     if (latitude === null || longitude === null) {
       return NextResponse.json(
         { error: '`latitude` and `longitude` are required numeric values' },
@@ -164,9 +196,19 @@ export async function POST(request: NextRequest) {
 
     const is_anonymous = Boolean(body.is_anonymous);
 
-    // Call Amazon Nova via Bedrock to classify the incident
-    const { severity_index, categories } = await analyzeIncident(text);
+    // --- Step 1: Categories from local FastAPI model -----------------------
+    let categories: string[];
+    try {
+      categories = await fetchCategories(text);
+    } catch (err) {
+      console.error('Category service unreachable, falling back to empty:', err);
+      categories = [];
+    }
 
+    // --- Steps 2+3: Severity from Bedrock Nova (with categories context) ---
+    const severity_index = await assessSeverity(text, categories);
+
+    // --- Step 4: Save to MongoDB -------------------------------------------
     await connectDB();
 
     const user = await findOrCreateUserFromSessionUser(session.user);
@@ -177,7 +219,6 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // GeoJSON Point — longitude first, then latitude (GeoJSON spec + MongoDB 2dsphere)
     const location = {
       type: 'Point' as const,
       coordinates: [longitude, latitude] as [number, number],
@@ -197,6 +238,9 @@ export async function POST(request: NextRequest) {
     return NextResponse.json(serializePost(post.toObject()), { status: 201 });
   } catch (error) {
     console.error('Error creating post:', error);
-    return NextResponse.json({ error: 'Failed to create post' }, { status: 500 });
+    return NextResponse.json(
+      { error: 'Failed to create post' },
+      { status: 500 }
+    );
   }
 }

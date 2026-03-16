@@ -1,8 +1,22 @@
+'use client';
+
+import { useCallback, useRef } from 'react';
 import { AppHeader } from '@/components/AppHeader';
 import { CommunityTabs } from '@/components/CommunityTabs';
-import { MapContainer } from '@/components/MapContainer';
+import { MapContainer, type MapContainerHandle } from '@/components/MapContainer';
+import { HeraBot } from '@/components/HeraBot';
 
 export default function MapPage() {
+  const mapHandle = useRef<MapContainerHandle>(null);
+
+  const handleFocusMap = useCallback((lat: number, lng: number) => {
+    mapHandle.current?.flyTo(lat, lng);
+  }, []);
+
+  const handleFilter = useCallback((category: string) => {
+    mapHandle.current?.filterByCategory(category);
+  }, []);
+
   return (
     <div className="brand-internal-shell">
       <AppHeader />
@@ -27,9 +41,11 @@ export default function MapPage() {
         <CommunityTabs activeTab="map" />
 
         <div className="flex justify-center">
-          <MapContainer />
+          <MapContainer ref={mapHandle} />
         </div>
       </main>
+
+      <HeraBot onFocusMap={handleFocusMap} onFilter={handleFilter} />
     </div>
   );
 }

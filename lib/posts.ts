@@ -1,8 +1,11 @@
 export function serializePost(post: {
   _id: unknown;
   raw_text: string;
+  categories?: string[];
+  severity_index?: number | null;
   category?: string | null;
   severity?: string | null;
+  location?: { type: string; coordinates: number[] } | null;
   location_text?: string | null;
   created_at: Date | string;
   is_anonymous?: boolean;
@@ -18,8 +21,11 @@ export function serializePost(post: {
   return {
     _id: String(post._id),
     raw_text: post.raw_text,
+    categories: post.categories ?? [],
+    severity_index: post.severity_index ?? null,
     category: post.category ?? null,
     severity: post.severity ?? null,
+    location: post.location ?? null,
     location_text: post.location_text ?? null,
     created_at: post.created_at instanceof Date ? post.created_at.toISOString() : String(post.created_at),
     is_anonymous: isAnonymous,
