@@ -3,12 +3,16 @@ import mongoose, { Schema, Document } from 'mongoose';
 export interface IPost extends Document {
   user_id: mongoose.Types.ObjectId;
   raw_text: string;
-  category?: string | null;
+  categories: string[];
+  severity_index: number | null;
+  /** Legacy label kept for backward-compat with existing documents */
   severity?: string | null;
   location_text?: string | null;
   is_anonymous: boolean;
-  latitude?: number | null;
-  longitude?: number | null;
+  location?: {
+    type: 'Point';
+    coordinates: [number, number]; // [longitude, latitude]
+  } | null;
   created_at: Date;
 }
 
@@ -23,8 +27,12 @@ const PostSchema = new Schema<IPost>(
       type: String,
       required: true,
     },
-    category: {
-      type: String,
+    categories: {
+      type: [String],
+      default: [],
+    },
+    severity_index: {
+      type: Number,
       default: null,
     },
     severity: {
@@ -39,13 +47,14 @@ const PostSchema = new Schema<IPost>(
       type: Boolean,
       default: false,
     },
-    latitude: {
-      type: Number,
-      default: null,
-    },
-    longitude: {
-      type: Number,
-      default: null,
+    location: {
+      type: {
+        type: String,
+        enum: ['Point'],
+      },
+      coordinates: {
+        type: [Number],
+      },
     },
     created_at: {
       type: Date,
@@ -54,5 +63,7 @@ const PostSchema = new Schema<IPost>(
   },
   { timestamps: false }
 );
+
+PostSchema.index({ location: '2dsphere' }, { sparse: true });
 
 export const Post = mongoose.models.Post || mongoose.model<IPost>('Post', PostSchema);

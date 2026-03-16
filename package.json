@@ -10,6 +10,7 @@
   },
   "dependencies": {
     "@auth0/nextjs-auth0": "^4.16.0",
+    "@aws-sdk/client-bedrock-runtime": "^3.1009.0",
     "dotenv": "^17.3.1",
     "mapbox-gl": "^3.19.1",
     "mongoose": "^9.2.4",

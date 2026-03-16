@@ -3,65 +3,72 @@ import { NextResponse } from 'next/server';
 import { connectDB } from '@/lib/db/mongodb';
 import { Post } from '@/lib/models/Post';
 
-function toHeatSeverity(value: unknown): number {
-  if (typeof value === 'number' && Number.isFinite(value)) {
-    return Math.min(10, Math.max(0, value));
-  }
-
-  if (typeof value === 'string') {
-    const normalized = value.trim().toLowerCase();
-    if (['low', 'minor'].includes(normalized)) return 3;
-    if (['medium', 'moderate', 'med'].includes(normalized)) return 6;
-    if (['high', 'severe', 'critical'].includes(normalized)) return 9;
-
-    const numeric = Number(normalized);
-    if (Number.isFinite(numeric)) {
-      return Math.min(10, Math.max(0, numeric));
-    }
-  }
-
-  return 0;
-}
+export const dynamic = 'force-dynamic';
 
 export async function GET() {
   await connectDB();
 
+  // Query posts that have a valid GeoJSON location (new schema)
+  // OR legacy latitude/longitude fields (old schema) for backward-compat
   const posts = await Post.find({
-    latitude: { $ne: null },
-    longitude: { $ne: null },
+    $or: [
+      { 'location.coordinates': { $exists: true } },
+      { latitude: { $ne: null }, longitude: { $ne: null } },
+    ],
   })
-    .select('latitude longitude severity')
+    .select('location severity_index severity')
     .lean();
 
-  const features = (posts ?? [])
-    .filter((post) => {
-      return (
-        typeof post.latitude === 'number' &&
-        typeof post.longitude === 'number' &&
-        Number.isFinite(post.latitude) &&
-        Number.isFinite(post.longitude) &&
-        Math.abs(post.latitude) <= 90 &&
-        Math.abs(post.longitude) <= 180
-      );
-    })
-    .map((post) => {
-      const clampedSeverity = toHeatSeverity(post.severity);
+  const features = (posts ?? []).flatMap((post) => {
+    let lng: number | undefined;
+    let lat: number | undefined;
 
-      return {
+    if (
+      post.location?.type === 'Point' &&
+      Array.isArray(post.location.coordinates) &&
+      post.location.coordinates.length === 2
+    ) {
+      [lng, lat] = post.location.coordinates;
+    }
+
+    if (
+      lng === undefined &&
+      typeof (post as any).latitude === 'number' &&
+      typeof (post as any).longitude === 'number'
+    ) {
+      lat = (post as any).latitude;
+      lng = (post as any).longitude;
+    }
+
+    if (
+      lng === undefined ||
+      lat === undefined ||
+      !Number.isFinite(lng) ||
+      !Number.isFinite(lat) ||
+      Math.abs(lat) > 90 ||
+      Math.abs(lng) > 180
+    ) {
+      return [];
+    }
+
+    // Prefer the new numeric severity_index (1-10); fall back to legacy string label
+    const severityRaw = post.severity_index ?? (post as any).severity;
+    const severity =
+      typeof severityRaw === 'number' && Number.isFinite(severityRaw)
+        ? Math.min(10, Math.max(0, severityRaw))
+        : 5;
+
+    return [
+      {
         type: 'Feature',
-        properties: {
-          severity: clampedSeverity,
-        },
-        geometry: {
-          type: 'Point',
-          coordinates: [post.longitude, post.latitude],
-        },
-      };
-    });
+        properties: { severity },
+        geometry: { type: 'Point', coordinates: [lng, lat] },
+      },
+    ];
+  });
 
-  // Default map view: Mississauga, Ontario (approx.)
-  // Mapbox zoom levels are exponential; zoom ~12.5 shows roughly a 10km span.
-  const defaultCenter: [number, number] = [-79.6441, 43.5890];
+  // Default map view: Mississauga, Ontario
+  const defaultCenter: [number, number] = [-79.6441, 43.589];
   const defaultZoom = 12.5;
 
   return NextResponse.json({
