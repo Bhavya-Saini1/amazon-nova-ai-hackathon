@@ -135,7 +135,8 @@ async function main() {
   const toLink = shuffled.slice(0, targetCount);
   const toAnonymize = shuffled.slice(targetCount);
 
-  const bulkOps: mongoose.AnyBulkWriteOperation<unknown>[] = [];
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const bulkOps: mongoose.AnyBulkWriteOperation<any>[] = [];
 
   for (const post of toLink) {
     bulkOps.push({
