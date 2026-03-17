@@ -55,7 +55,7 @@ function keywordCategoryFallback(text: string): string[] {
   const matched = KEYWORD_CATEGORIES
     .filter(([re]) => re.test(text))
     .map(([, cat]) => cat);
-  return matched.length > 0 ? [...new Set(matched)] : ['Verbal Harassment'];
+  return matched.length > 0 ? Array.from(new Set(matched)) : ['Verbal Harassment'];
 }
 
 // ---------------------------------------------------------------------------
