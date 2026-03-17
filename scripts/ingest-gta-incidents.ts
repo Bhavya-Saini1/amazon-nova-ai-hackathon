@@ -131,12 +131,9 @@ function parseDataset(raw: unknown): RawRecord[] {
         props.description ??
         `${offence} incident reported`;
 
-      const date =
-        props.REPORT_DATE ??
-        props.report_date ??
-        props.OCC_DATE ??
-        props.occ_date ??
-        undefined;
+      const date = String(
+        props.REPORT_DATE ?? props.report_date ?? props.OCC_DATE ?? props.occ_date ?? ''
+      ) || undefined;
 
       records.push({ text: String(text), lat, lng, offence: String(offence), date });
     }
@@ -148,7 +145,7 @@ function parseDataset(raw: unknown): RawRecord[] {
         item.OFFENCE ?? item.offence ?? item.MCI_CATEGORY ?? item.mci_category ?? 'Unknown'
       );
       const text = String(item.DESCRIPTION ?? item.description ?? item.text ?? `${offence} incident`);
-      const date = item.REPORT_DATE ?? item.report_date ?? item.OCC_DATE ?? undefined;
+      const date = String(item.REPORT_DATE ?? item.report_date ?? item.OCC_DATE ?? '') || undefined;
 
       if (!Number.isFinite(lat) || !Number.isFinite(lng)) continue;
       records.push({ text, lat, lng, offence, date });
