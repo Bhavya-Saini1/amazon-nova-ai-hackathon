@@ -2,9 +2,9 @@ export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from 'next/server';
-import { auth0 } from '@/lib/auth0';
 import { connectDB } from '@/lib/db/mongodb';
 import { Post } from '@/lib/models/Post';
+import { getAppSession } from '@/lib/session';
 
 /**
  * DELETE /api/admin/nuke
@@ -12,7 +12,7 @@ import { Post } from '@/lib/models/Post';
  * Requires authentication + a confirmation header to prevent accidents.
  */
 export async function DELETE(request: NextRequest) {
-  const session = await auth0.getSession();
+  const session = await getAppSession();
   if (!session?.user) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }

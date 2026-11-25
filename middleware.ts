@@ -2,6 +2,13 @@ import type { NextRequest } from 'next/server';
 import { NextResponse } from 'next/server';
 import { auth0 } from './lib/auth0';
 
+function isDemoMode() {
+  return (
+    process.env.DEMO_MODE === 'true' ||
+    process.env.NEXT_PUBLIC_DEMO_MODE === 'true'
+  );
+}
+
 function hasAuth0Env() {
   const baseUrl = process.env.APP_BASE_URL || process.env.AUTH0_BASE_URL;
   return Boolean(
@@ -14,6 +21,19 @@ function hasAuth0Env() {
 }
 
 export async function middleware(request: NextRequest) {
+  if (isDemoMode()) {
+    const { pathname } = request.nextUrl;
+
+    if (pathname === '/' || pathname.startsWith('/auth')) {
+      const url = request.nextUrl.clone();
+      url.pathname = '/home';
+      url.search = '';
+      return NextResponse.redirect(url);
+    }
+
+    return NextResponse.next();
+  }
+
   if (!hasAuth0Env()) {
     return NextResponse.next();
   }

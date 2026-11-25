@@ -1,3 +1,5 @@
+export const dynamic = 'force-dynamic';
+
 import type { ReactNode } from 'react';
 import { requireCompletedProfile } from '@/lib/auth-guards';
 

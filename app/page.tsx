@@ -3,8 +3,6 @@
 import { useUser } from '@auth0/nextjs-auth0/client';
 import { useRouter } from 'next/navigation';
 import { useEffect } from 'react';
-import Link from 'next/link';
-
 export default function LandingPage() {
   const { user, isLoading } = useUser();
   const router = useRouter();
@@ -45,12 +43,12 @@ export default function LandingPage() {
           </div>
 
           <div className="flex items-center gap-3">
-            <Link
+            <a
               href="/auth/login"
               className="hidden rounded-full border border-white/15 px-5 py-2.5 text-sm font-medium text-purple-50 transition hover:border-white/30 hover:bg-white/10 sm:inline-flex"
             >
               Log in
-            </Link>
+            </a>
             <a
               href="/auth/login?screen_hint=signup"
               className="inline-flex rounded-full bg-gradient-to-r from-[#f7e9ff] via-[#ebd7ff] to-[#ffd7d5] px-5 py-2.5 text-sm font-semibold text-[#241735] shadow-lg shadow-black/10 transition hover:scale-[1.01]"
@@ -82,12 +80,12 @@ export default function LandingPage() {
               >
                 Create your account
               </a>
-              <Link
+              <a
                 href="/auth/login"
                 className="inline-flex items-center justify-center rounded-2xl border border-white/15 bg-white/5 px-6 py-3.5 text-base font-semibold text-white backdrop-blur transition hover:border-white/30 hover:bg-white/10"
               >
                 Explore the feed
-              </Link>
+              </a>
             </div>
 
             <div className="mt-12 grid gap-4 sm:grid-cols-3">

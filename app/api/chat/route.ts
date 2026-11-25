@@ -9,9 +9,9 @@ import {
   type Tool,
   type ToolResultContentBlock,
 } from '@aws-sdk/client-bedrock-runtime';
-import { auth0 } from '@/lib/auth0';
 import { connectDB } from '@/lib/db/mongodb';
 import { Post } from '@/lib/models/Post';
+import { getAppSession } from '@/lib/session';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -354,7 +354,7 @@ interface ChatMessage {
 // POST handler — agentic loop with silent tool execution
 // ---------------------------------------------------------------------------
 export async function POST(request: NextRequest) {
-  const session = await auth0.getSession();
+  const session = await getAppSession();
   if (!session?.user) {
     return new Response(JSON.stringify({ error: 'Unauthorized' }), {
       status: 401,

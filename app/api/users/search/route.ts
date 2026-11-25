@@ -1,9 +1,9 @@
 export const runtime = 'nodejs';
 
 import { NextRequest, NextResponse } from 'next/server';
-import { auth0 } from '@/lib/auth0';
 import { connectDB } from '@/lib/db/mongodb';
 import { User } from '@/lib/models/User';
+import { getAppSession } from '@/lib/session';
 
 export const dynamic = 'force-dynamic';
 
@@ -27,7 +27,7 @@ function getFullName(user: {
 
 export async function GET(request: NextRequest) {
   try {
-    const session = await auth0.getSession();
+    const session = await getAppSession();
 
     if (!session?.user) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });

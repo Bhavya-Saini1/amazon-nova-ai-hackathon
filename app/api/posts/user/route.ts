@@ -1,18 +1,18 @@
 export const runtime = 'nodejs';
 
 import { NextResponse } from 'next/server';
-import { auth0 } from '@/lib/auth0';
 import { connectDB } from '@/lib/db/mongodb';
 import { getFollowCounts } from '@/lib/follows';
 import { Post } from '@/lib/models/Post';
 import { serializePost } from '@/lib/posts';
 import { findOrCreateUserFromSessionUser, hasCompleteProfile } from '@/lib/profile';
+import { getAppSession } from '@/lib/session';
 
 export const dynamic = 'force-dynamic';
 
 export async function GET() {
   try {
-    const session = await auth0.getSession();
+    const session = await getAppSession();
 
     if (!session || !session.user) {
       return NextResponse.json(
