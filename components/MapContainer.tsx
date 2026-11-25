@@ -165,7 +165,17 @@ export const MapContainer = forwardRef<MapContainerHandle>(
           initializeMap(geojson);
         } catch (err) {
           console.error(err);
-          setError('Unable to load map data.');
+          // Still show the base Mapbox map even if /api/map is unreachable.
+          if (!mapContainerRef.current) {
+            setError('Unable to load map data. Check /api/map and Mapbox token.');
+            return;
+          }
+          initializeMap({
+            type: 'FeatureCollection',
+            features: [],
+            defaultCenter: [-79.6441, 43.589],
+            defaultZoom: 12.5,
+          });
         }
       };
 

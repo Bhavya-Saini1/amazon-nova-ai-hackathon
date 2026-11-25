@@ -1,0 +1,28 @@
+/** Static GTA-ish points so the heatmap still renders when Mongo is down. */
+export const DEMO_MAP_GEOJSON = {
+  type: 'FeatureCollection' as const,
+  defaultCenter: [-79.6441, 43.589] as [number, number],
+  defaultZoom: 11,
+  features: [
+    { type: 'Feature' as const, properties: { severity: 8 }, geometry: { type: 'Point' as const, coordinates: [-79.3832, 43.6532] } },
+    { type: 'Feature' as const, properties: { severity: 6 }, geometry: { type: 'Point' as const, coordinates: [-79.3900, 43.6480] } },
+    { type: 'Feature' as const, properties: { severity: 7 }, geometry: { type: 'Point' as const, coordinates: [-79.4005, 43.6629] } },
+    { type: 'Feature' as const, properties: { severity: 5 }, geometry: { type: 'Point' as const, coordinates: [-79.4200, 43.6700] } },
+    { type: 'Feature' as const, properties: { severity: 9 }, geometry: { type: 'Point' as const, coordinates: [-79.3700, 43.6550] } },
+    { type: 'Feature' as const, properties: { severity: 4 }, geometry: { type: 'Point' as const, coordinates: [-79.4500, 43.6400] } },
+    { type: 'Feature' as const, properties: { severity: 7 }, geometry: { type: 'Point' as const, coordinates: [-79.6100, 43.5900] } },
+    { type: 'Feature' as const, properties: { severity: 6 }, geometry: { type: 'Point' as const, coordinates: [-79.6500, 43.5800] } },
+    { type: 'Feature' as const, properties: { severity: 8 }, geometry: { type: 'Point' as const, coordinates: [-79.6800, 43.6000] } },
+    { type: 'Feature' as const, properties: { severity: 5 }, geometry: { type: 'Point' as const, coordinates: [-79.7600, 43.6850] } },
+    { type: 'Feature' as const, properties: { severity: 7 }, geometry: { type: 'Point' as const, coordinates: [-79.7900, 43.7000] } },
+    { type: 'Feature' as const, properties: { severity: 6 }, geometry: { type: 'Point' as const, coordinates: [-79.8700, 43.2500] } },
+    { type: 'Feature' as const, properties: { severity: 8 }, geometry: { type: 'Point' as const, coordinates: [-79.8900, 43.2600] } },
+    { type: 'Feature' as const, properties: { severity: 5 }, geometry: { type: 'Point' as const, coordinates: [-80.5000, 43.4500] } },
+    { type: 'Feature' as const, properties: { severity: 7 }, geometry: { type: 'Point' as const, coordinates: [-81.2500, 42.9800] } },
+    { type: 'Feature' as const, properties: { severity: 6 }, geometry: { type: 'Point' as const, coordinates: [-79.4100, 43.6450] } },
+    { type: 'Feature' as const, properties: { severity: 9 }, geometry: { type: 'Point' as const, coordinates: [-79.3950, 43.6600] } },
+    { type: 'Feature' as const, properties: { severity: 4 }, geometry: { type: 'Point' as const, coordinates: [-79.4300, 43.6500] } },
+    { type: 'Feature' as const, properties: { severity: 7 }, geometry: { type: 'Point' as const, coordinates: [-79.3600, 43.6700] } },
+    { type: 'Feature' as const, properties: { severity: 6 }, geometry: { type: 'Point' as const, coordinates: [-79.5000, 43.6200] } },
+  ],
+};
