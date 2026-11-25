@@ -27,7 +27,7 @@ export default function FollowingPage() {
   const [postsLoading, setPostsLoading] = useState(true);
 
   useEffect(() => {
-    if (!isLoading && !user) {
+    if (process.env.NEXT_PUBLIC_DEMO_MODE !== 'true' && !isLoading && !user) {
       router.push('/');
       return;
     }
@@ -67,7 +67,7 @@ export default function FollowingPage() {
     );
   }
 
-  if (!user) {
+  if (!user && process.env.NEXT_PUBLIC_DEMO_MODE !== 'true') {
     return null;
   }
 

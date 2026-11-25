@@ -73,8 +73,11 @@ export default function HomePage() {
     router.replace('/home', { scroll: false });
   };
 
-  // Redirect if not authenticated
+  // Redirect if not authenticated (skipped in demo mode)
   useEffect(() => {
+    if (process.env.NEXT_PUBLIC_DEMO_MODE === 'true') {
+      return;
+    }
     if (!isLoading && !user) {
       router.push('/');
     }
@@ -134,7 +137,7 @@ export default function HomePage() {
     );
   }
 
-  if (!user) {
+  if (!user && process.env.NEXT_PUBLIC_DEMO_MODE !== 'true') {
     return null;
   }
 
@@ -150,7 +153,7 @@ export default function HomePage() {
                 Community-powered awareness
               </div>
               <h1 className="brand-page-title text-3xl font-semibold tracking-tight">
-                Welcome back, {profileUsername || user.nickname || user.email}
+                Welcome back, {profileUsername || user?.nickname || user?.email || 'demo'}
               </h1>
               <p className="brand-page-copy mt-3 max-w-2xl text-sm leading-7 sm:text-base">
                 Follow safety reports from your community through a clearer, calmer feed designed to support quick decisions.

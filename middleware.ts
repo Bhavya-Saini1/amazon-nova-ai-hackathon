@@ -24,6 +24,11 @@ export async function middleware(request: NextRequest) {
   if (isDemoMode()) {
     const { pathname } = request.nextUrl;
 
+    // Keep /auth/profile available for the Auth0 client SDK (useUser).
+    if (pathname === '/auth/profile') {
+      return NextResponse.next();
+    }
+
     if (pathname === '/' || pathname.startsWith('/auth')) {
       const url = request.nextUrl.clone();
       url.pathname = '/home';

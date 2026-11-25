@@ -56,7 +56,7 @@ export default function Profile() {
   const [postsLoading, setPostsLoading] = useState(true);
 
   useEffect(() => {
-    if (!isLoading && !user) {
+    if (process.env.NEXT_PUBLIC_DEMO_MODE !== 'true' && !isLoading && !user) {
       router.push('/');
       return;
     }
@@ -93,11 +93,11 @@ export default function Profile() {
     );
   }
 
-  if (!user) {
+  if (!user && process.env.NEXT_PUBLIC_DEMO_MODE !== 'true') {
     return null;
   }
 
-  const displayName = profile?.username || user.name || user.nickname || user.email || 'User';
+  const displayName = profile?.username || user?.name || user?.nickname || user?.email || 'User';
   const avatarFallback = displayName[0]?.toUpperCase() || 'U';
 
   return (
@@ -108,7 +108,7 @@ export default function Profile() {
           <div className="bg-gradient-to-r from-[#1d1432] via-[#2f1f4a] to-[#7d5ba9] px-6 py-8 sm:px-8">
             <div className="flex flex-col gap-6 sm:flex-row sm:items-center sm:justify-between">
               <div className="flex items-center gap-4">
-                {user.picture ? (
+                {user?.picture ? (
                   // eslint-disable-next-line @next/next/no-img-element
                   <img
                     src={user.picture}
