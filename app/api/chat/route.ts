@@ -9,6 +9,11 @@ import {
   type Tool,
   type ToolResultContentBlock,
 } from '@aws-sdk/client-bedrock-runtime';
+import {
+  buildDemoHeraReply,
+  createDemoHeraStream,
+  shouldUseDemoHeraBot,
+} from '@/lib/demo-herabot';
 import { connectDB } from '@/lib/db/mongodb';
 import { Post } from '@/lib/models/Post';
 import { getAppSession } from '@/lib/session';
@@ -379,6 +384,18 @@ export async function POST(request: NextRequest) {
     );
   }
 
+  // Quick demo path when AWS/Bedrock is unavailable.
+  if (shouldUseDemoHeraBot()) {
+    const reply = buildDemoHeraReply(body.messages);
+    return new Response(createDemoHeraStream(reply), {
+      headers: {
+        'Content-Type': 'text/event-stream',
+        'Cache-Control': 'no-cache',
+        Connection: 'keep-alive',
+      },
+    });
+  }
+
   const messages: Message[] = body.messages.map((m) => ({
     role: m.role,
     content: [{ text: m.content }],
@@ -520,10 +537,14 @@ export async function POST(request: NextRequest) {
       },
     });
   } catch (err) {
-    console.error('Chat handler failed:', err);
-    return new Response(
-      JSON.stringify({ error: 'Failed to process chat request' }),
-      { status: 500, headers: { 'Content-Type': 'application/json' } }
-    );
+    console.error('Chat handler failed, falling back to demo HeraBot:', err);
+    const reply = buildDemoHeraReply(body.messages);
+    return new Response(createDemoHeraStream(reply), {
+      headers: {
+        'Content-Type': 'text/event-stream',
+        'Cache-Control': 'no-cache',
+        Connection: 'keep-alive',
+      },
+    });
   }
 }
