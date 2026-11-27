@@ -112,6 +112,7 @@ function parseNumericCoordinate(
 const NEAR_ME_DEFAULT_RADIUS_KM = 10;
 const NEAR_ME_MAX_RADIUS_KM = 25;
 const NEAR_ME_LIMIT = 120;
+const TRENDING_LIMIT = 40;
 
 // ---------------------------------------------------------------------------
 // GET — list posts (optional city-scale near filter via lat/lng/radius_km)
@@ -140,15 +141,14 @@ export async function GET(request: NextRequest) {
           }
         : {};
 
-    let query = Post.find(filter)
+    const limit = lat !== null && lng !== null ? NEAR_ME_LIMIT : TRENDING_LIMIT;
+
+    const posts = await Post.find(filter)
       .populate('user_id', 'username email auth0_id')
-      .sort({ created_at: -1 });
-
-    if (lat !== null && lng !== null) {
-      query = query.limit(NEAR_ME_LIMIT);
-    }
-
-    const posts = await query.lean().exec();
+      .sort({ created_at: -1 })
+      .limit(limit)
+      .lean()
+      .exec();
 
     return NextResponse.json(posts.map(serializePost), { status: 200 });
   } catch (error) {
