@@ -154,11 +154,8 @@ export function createDemoHeraStream(reply: DemoReply) {
 }
 
 export function shouldUseDemoHeraBot() {
-  if (
-    process.env.DEMO_MODE === 'true' ||
-    process.env.NEXT_PUBLIC_DEMO_MODE === 'true' ||
-    process.env.HERABOT_DEMO === 'true'
-  ) {
+  // Explicit override only — do not couple to auth DEMO_MODE.
+  if (process.env.HERABOT_DEMO === 'true') {
     return true;
   }
 
