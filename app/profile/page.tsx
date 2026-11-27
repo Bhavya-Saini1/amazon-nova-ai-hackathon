@@ -94,7 +94,13 @@ export default function Profile() {
   }
 
   if (!user && process.env.NEXT_PUBLIC_DEMO_MODE !== 'true') {
-    return null;
+    return (
+      <div className="brand-internal-shell">
+        <main className="mx-auto max-w-4xl px-4 py-8">
+          <p className="text-[#d8cfee]">Signing you in...</p>
+        </main>
+      </div>
+    );
   }
 
   const displayName = profile?.username || user?.name || user?.nickname || user?.email || 'User';

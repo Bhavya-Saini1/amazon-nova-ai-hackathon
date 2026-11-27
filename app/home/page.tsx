@@ -138,7 +138,14 @@ export default function HomePage() {
   }
 
   if (!user && process.env.NEXT_PUBLIC_DEMO_MODE !== 'true') {
-    return null;
+    return (
+      <div className="brand-app-shell flex items-center justify-center">
+        <div className="text-center">
+          <div className="inline-block h-12 w-12 animate-spin rounded-full border-b-2 border-[#7b60b4]"></div>
+          <p className="mt-4 text-[#6d6282]">Signing you in...</p>
+        </div>
+      </div>
+    );
   }
 
   return (

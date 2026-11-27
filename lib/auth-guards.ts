@@ -25,6 +25,37 @@ function getSyntheticDemoUser() {
   };
 }
 
+function sessionFallbackUser(sessionUser: {
+  sub?: string;
+  email?: string;
+  name?: string;
+  nickname?: string;
+  given_name?: string;
+  family_name?: string;
+}) {
+  const email = sessionUser.email || 'user@hera.app';
+  const rawUsername =
+    sessionUser.nickname ||
+    email.split('@')[0] ||
+    'user';
+  const username = rawUsername
+    .toLowerCase()
+    .replace(/[^a-z0-9_.-]/g, '')
+    .slice(0, 24) || 'user';
+
+  return {
+    _id: `session:${sessionUser.sub || 'unknown'}`,
+    auth0_id: sessionUser.sub || 'unknown',
+    email,
+    name: sessionUser.name || sessionUser.nickname || email,
+    first_name: sessionUser.given_name || sessionUser.name?.split(' ')[0] || 'Hera',
+    last_name: sessionUser.family_name || sessionUser.name?.split(' ').slice(1).join(' ') || 'User',
+    username,
+    age: 25,
+    phone_number: '5555555555',
+  };
+}
+
 export async function requireAuthenticatedMongoUser() {
   if (isDemoMode()) {
     try {
@@ -71,23 +102,38 @@ export async function requireAuthenticatedMongoUser() {
   }
 
   if (!process.env.MONGODB_URI) {
-    redirect('/');
+    console.error('MONGODB_URI missing; using Auth0 session fallback user');
+    return {
+      session,
+      user: sessionFallbackUser(session.user),
+      dbAvailable: false as const,
+    };
   }
 
   try {
     await connectDB();
+    const user = await findOrCreateUserFromSessionUser(session.user);
+    return { session, user, dbAvailable: true as const };
   } catch (error) {
-    console.error('Database unavailable, redirecting to landing page:', error);
-    redirect('/');
+    // Don't bounce authenticated users back to `/` — that loops with the landing
+    // page's "logged in → /home" redirect and causes a white flash.
+    console.error('Database unavailable, using Auth0 session fallback user:', error);
+    return {
+      session,
+      user: sessionFallbackUser(session.user),
+      dbAvailable: false as const,
+    };
   }
-
-  const user = await findOrCreateUserFromSessionUser(session.user);
-
-  return { session, user };
 }
 
 export async function requireCompletedProfile() {
   const context = await requireAuthenticatedMongoUser();
+
+  // If Mongo is down we already synthesized a complete-enough profile so the
+  // app remains usable after Auth0 login.
+  if ('dbAvailable' in context && context.dbAvailable === false) {
+    return context;
+  }
 
   if (!hasCompleteProfile(context.user)) {
     if (isDemoMode()) {
@@ -101,6 +147,11 @@ export async function requireCompletedProfile() {
 
 export async function requireIncompleteProfile() {
   const context = await requireAuthenticatedMongoUser();
+
+  if ('dbAvailable' in context && context.dbAvailable === false) {
+    // Can't complete a profile without Mongo — send them into the app instead.
+    redirect('/home');
+  }
 
   if (hasCompleteProfile(context.user)) {
     redirect('/home');

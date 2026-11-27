@@ -10,7 +10,7 @@ export default function LandingPage() {
   // Redirect to /home if already logged in
   useEffect(() => {
     if (!isLoading && user) {
-      router.push('/home');
+      router.replace('/home');
     }
   }, [isLoading, user, router]);
 
