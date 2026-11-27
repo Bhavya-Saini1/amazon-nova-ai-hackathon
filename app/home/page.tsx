@@ -6,6 +6,10 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { AppHeader } from '@/components/AppHeader';
 import { CommunityTabs } from '@/components/CommunityTabs';
 import { PostCard } from '@/components/PostCard';
+
+/** City-scale Near Me radius — roughly one Southern Ontario city, not the whole GTA. */
+const NEAR_ME_RADIUS_KM = 10;
+
 interface Post {
   _id: string;
   user_id: {
@@ -24,6 +28,37 @@ interface Post {
   author_name: string;
 }
 
+interface UserCoords {
+  lat: number;
+  lng: number;
+}
+
+function readUserLocation(): Promise<UserCoords> {
+  return new Promise((resolve, reject) => {
+    if (!navigator.geolocation) {
+      reject(new Error('Location is not supported in this browser.'));
+      return;
+    }
+
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        resolve({
+          lat: position.coords.latitude,
+          lng: position.coords.longitude,
+        });
+      },
+      (error) => {
+        if (error.code === error.PERMISSION_DENIED) {
+          reject(new Error('Allow location access to see reports in your city.'));
+          return;
+        }
+        reject(new Error('Could not determine your location. Try again.'));
+      },
+      { enableHighAccuracy: false, timeout: 12_000, maximumAge: 60_000 }
+    );
+  });
+}
+
 export default function HomePage() {
   const { user, isLoading } = useUser();
   const router = useRouter();
@@ -31,6 +66,7 @@ export default function HomePage() {
   const [posts, setPosts] = useState<Post[]>([]);
   const [profileUsername, setProfileUsername] = useState<string | null>(null);
   const [postsLoading, setPostsLoading] = useState(true);
+  const [locationError, setLocationError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<'trending' | 'near-me'>('trending');
 
   const topReportedAreas = useMemo(() => {
@@ -83,27 +119,62 @@ export default function HomePage() {
     }
   }, [isLoading, user, router]);
 
-  // Fetch posts
+  // Fetch posts — Near Me uses a city-scale radius around the user
   useEffect(() => {
+    let cancelled = false;
+
     const fetchPosts = async () => {
       try {
         setPostsLoading(true);
-        const response = await fetch('/api/posts');
-        if (response.ok) {
-          const data = await response.json();
+        setLocationError(null);
+
+        let url = '/api/posts';
+
+        if (activeTab === 'near-me') {
+          const coords = await readUserLocation();
+          if (cancelled) return;
+          const params = new URLSearchParams({
+            lat: String(coords.lat),
+            lng: String(coords.lng),
+            radius_km: String(NEAR_ME_RADIUS_KM),
+          });
+          url = `/api/posts?${params.toString()}`;
+        }
+
+        const response = await fetch(url);
+        if (!response.ok) {
+          throw new Error('Failed to load posts');
+        }
+
+        const data = await response.json();
+        if (!cancelled) {
           setPosts(data);
         }
       } catch (error) {
         console.error('Failed to fetch posts:', error);
+        if (!cancelled) {
+          setPosts([]);
+          if (activeTab === 'near-me') {
+            setLocationError(
+              error instanceof Error ? error.message : 'Failed to load nearby posts.'
+            );
+          }
+        }
       } finally {
-        setPostsLoading(false);
+        if (!cancelled) {
+          setPostsLoading(false);
+        }
       }
     };
 
     if (!isLoading && user) {
       fetchPosts();
     }
-  }, [isLoading, user]);
+
+    return () => {
+      cancelled = true;
+    };
+  }, [isLoading, user, activeTab]);
 
   useEffect(() => {
     const fetchProfile = async () => {
@@ -168,7 +239,9 @@ export default function HomePage() {
             </div>
 
             <div className="brand-page-pill px-4 py-2 text-sm shadow-sm">
-              Trending reports and nearby updates
+              {activeTab === 'near-me'
+                ? `Reports within ~${NEAR_ME_RADIUS_KM} km of you`
+                : 'Trending reports and nearby updates'}
             </div>
           </div>
         </section>
@@ -184,13 +257,26 @@ export default function HomePage() {
               </div>
             )}
 
-            {!postsLoading && posts.length === 0 && (
+            {!postsLoading && locationError && activeTab === 'near-me' && (
+              <div className="brand-glass-surface flex flex-col items-center justify-center py-16 text-center">
+                <p className="font-medium text-white">Location needed for Near Me</p>
+                <p className="mt-2 max-w-sm text-sm text-[#d8cfee]">{locationError}</p>
+              </div>
+            )}
+
+            {!postsLoading && !locationError && posts.length === 0 && (
               <div className="brand-glass-surface flex flex-col items-center justify-center py-16 text-center">
                 <svg className="mb-4 h-16 w-16 text-[#ccbfe0]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 6v6m0 0v6m0-6h6m0 0h6m-6-6h-6m0 0H6m6 6h-6m0 0H6" />
                 </svg>
-                <p className="font-medium text-white">No posts yet</p>
-                <p className="mt-1 text-sm text-[#d8cfee]">Be the first to share a safety report</p>
+                <p className="font-medium text-white">
+                  {activeTab === 'near-me' ? 'No reports in your city yet' : 'No posts yet'}
+                </p>
+                <p className="mt-1 text-sm text-[#d8cfee]">
+                  {activeTab === 'near-me'
+                    ? `Nothing within about ${NEAR_ME_RADIUS_KM} km of your location right now.`
+                    : 'Be the first to share a safety report'}
+                </p>
               </div>
             )}
 
@@ -223,12 +309,14 @@ export default function HomePage() {
                   <h2 className="mt-2 text-xl font-semibold text-white">Top Reported Areas</h2>
                 </div>
                 <div className="brand-page-pill px-3 py-1 text-xs font-medium">
-                  Top 5
+                  {activeTab === 'near-me' ? 'In your city' : 'Top 5'}
                 </div>
               </div>
 
               <p className="text-sm leading-6 text-[#d7caec]">
-                A quick view of the areas appearing most often in recent community reports.
+                {activeTab === 'near-me'
+                  ? `Hotspots from reports within about ${NEAR_ME_RADIUS_KM} km of you.`
+                  : 'A quick view of the areas appearing most often in recent community reports.'}
               </p>
 
               {topReportedAreas.length > 0 ? (

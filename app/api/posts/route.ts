@@ -108,17 +108,47 @@ function parseNumericCoordinate(
   return n;
 }
 
+// City-scale default for Near Me (~one mid-size Southern Ontario city).
+const NEAR_ME_DEFAULT_RADIUS_KM = 10;
+const NEAR_ME_MAX_RADIUS_KM = 25;
+const NEAR_ME_LIMIT = 120;
+
 // ---------------------------------------------------------------------------
-// GET — list all posts
+// GET — list posts (optional city-scale near filter via lat/lng/radius_km)
 // ---------------------------------------------------------------------------
-export async function GET() {
+export async function GET(request: NextRequest) {
   try {
     await connectDB();
-    const posts = await Post.find({})
+
+    const { searchParams } = new URL(request.url);
+    const lat = parseNumericCoordinate(searchParams.get('lat'), 90);
+    const lng = parseNumericCoordinate(searchParams.get('lng'), 180);
+    const rawRadius = Number(searchParams.get('radius_km'));
+    const radiusKm = Number.isFinite(rawRadius)
+      ? Math.min(Math.max(rawRadius, 1), NEAR_ME_MAX_RADIUS_KM)
+      : NEAR_ME_DEFAULT_RADIUS_KM;
+
+    const filter =
+      lat !== null && lng !== null
+        ? {
+            location: {
+              $geoWithin: {
+                // Earth radius ≈ 6378.1 km
+                $centerSphere: [[lng, lat], radiusKm / 6378.1],
+              },
+            },
+          }
+        : {};
+
+    let query = Post.find(filter)
       .populate('user_id', 'username email auth0_id')
-      .sort({ created_at: -1 })
-      .lean()
-      .exec();
+      .sort({ created_at: -1 });
+
+    if (lat !== null && lng !== null) {
+      query = query.limit(NEAR_ME_LIMIT);
+    }
+
+    const posts = await query.lean().exec();
 
     return NextResponse.json(posts.map(serializePost), { status: 200 });
   } catch (error) {
