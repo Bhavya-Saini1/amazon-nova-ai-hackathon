@@ -7,7 +7,6 @@ import {
   type Message,
   type SystemContentBlock,
   type Tool,
-  type ToolResultContentBlock,
 } from '@aws-sdk/client-bedrock-runtime';
 import {
   buildDemoHeraReply,
@@ -20,9 +19,13 @@ import { getAppSession } from '@/lib/session';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
+// Allow longer Bedrock tool loops on Vercel (capped by plan).
+export const maxDuration = 60;
 
-const MODEL_ID = 'amazon.nova-lite-v1:0';
-const MAX_TOOL_ROUNDS = 5;
+// Prefer the US inference profile — more reliable than on-demand model IDs.
+const MODEL_ID =
+  process.env.BEDROCK_MODEL_ID?.trim() || 'us.amazon.nova-lite-v1:0';
+const MAX_TOOL_ROUNDS = 3;
 
 function getBedrockClient() {
   return new BedrockRuntimeClient({
@@ -402,149 +405,142 @@ export async function POST(request: NextRequest) {
   }));
 
   const client = getBedrockClient();
-  const mapActions: { type: string; payload: Record<string, unknown> }[] = [];
 
-  // ---- Agentic loop: non-streaming rounds while Nova calls tools ----------
-  try {
-    let round = 0;
-    while (round < MAX_TOOL_ROUNDS) {
-      round++;
+  // Start SSE immediately so the client isn't stuck waiting on the whole
+  // Bedrock tool loop before the first byte.
+  const stream = new ReadableStream({
+    async start(controller) {
+      const encoder = new TextEncoder();
 
-      const response = await client.send(
-        new ConverseCommand({
-          modelId: MODEL_ID,
-          system: SYSTEM_PROMPT,
-          messages,
-          toolConfig: { tools: TOOLS },
-        })
-      );
-
-      const assistantContent = response.output?.message?.content ?? [];
-
-      messages.push({ role: 'assistant', content: assistantContent });
-
-      const toolCalls = assistantContent.filter((b) => b.toolUse);
-      console.log(`[AGENT] round ${round} — stopReason: ${response.stopReason}, tool calls: ${toolCalls.length}${toolCalls.length > 0 ? ` (${toolCalls.map((b) => b.toolUse?.name).join(', ')})` : ''}`);
-
-      if (response.stopReason !== 'tool_use') {
-        break;
+      function send(event: string, data: unknown) {
+        controller.enqueue(
+          encoder.encode(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`)
+        );
       }
 
-      const toolResultBlocks: ContentBlock[] = [];
+      try {
+        let round = 0;
+        while (round < MAX_TOOL_ROUNDS) {
+          round++;
 
-      for (const block of assistantContent) {
-        if (!block.toolUse) continue;
-
-        const toolName = block.toolUse.name ?? 'unknown';
-        const toolInput = (block.toolUse.input as Record<string, unknown>) ?? {};
-        const toolUseId = block.toolUse.toolUseId ?? '';
-
-        const result = await executeTool(toolName, toolInput);
-
-        if (result.mapAction) {
-          mapActions.push(result.mapAction);
-        }
-
-        const resultContent: ToolResultContentBlock[] = [{ text: result.output }];
-
-        toolResultBlocks.push({
-          toolResult: {
-            toolUseId,
-            content: resultContent,
-          },
-        });
-      }
-
-      messages.push({ role: 'user', content: toolResultBlocks });
-    }
-
-    // ---- Final streaming turn: only the conversational summary ------------
-    // If the last message is already a text response from the non-streaming
-    // loop, extract and stream it. Otherwise do one more streaming call.
-
-    const lastMsg = messages[messages.length - 1];
-    const lastIsAssistantText =
-      lastMsg.role === 'assistant' &&
-      Array.isArray(lastMsg.content) &&
-      (lastMsg.content as ContentBlock[]).some((b) => b.text !== undefined);
-
-    const stream = new ReadableStream({
-      async start(controller) {
-        const encoder = new TextEncoder();
-
-        function send(event: string, data: unknown) {
-          controller.enqueue(
-            encoder.encode(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`)
+          const response = await client.send(
+            new ConverseCommand({
+              modelId: MODEL_ID,
+              system: SYSTEM_PROMPT,
+              messages,
+              toolConfig: { tools: TOOLS },
+            })
           );
-        }
 
-        try {
-          // Send map actions first so the UI reacts immediately
-          for (const action of mapActions) {
-            send('map_action', action);
+          const assistantContent = response.output?.message?.content ?? [];
+          messages.push({ role: 'assistant', content: assistantContent });
+
+          const toolCalls = assistantContent.filter((b) => b.toolUse);
+          console.log(
+            `[AGENT] round ${round} — stopReason: ${response.stopReason}, tool calls: ${toolCalls.length}` +
+              (toolCalls.length > 0
+                ? ` (${toolCalls.map((b) => b.toolUse?.name).join(', ')})`
+                : '')
+          );
+
+          if (response.stopReason !== 'tool_use') {
+            break;
           }
 
-          const filter = new ThinkingFilter();
+          const toolResultBlocks: ContentBlock[] = [];
 
-          if (lastIsAssistantText) {
-            for (const block of lastMsg.content as ContentBlock[]) {
-              if (block.text) {
-                const clean = filter.push(block.text);
+          for (const block of assistantContent) {
+            if (!block.toolUse) continue;
+
+            const toolName = block.toolUse.name ?? 'unknown';
+            const toolInput = (block.toolUse.input as Record<string, unknown>) ?? {};
+            const toolUseId = block.toolUse.toolUseId ?? '';
+            const result = await executeTool(toolName, toolInput);
+
+            if (result.mapAction) {
+              // Fly the map as soon as a tool requests it.
+              send('map_action', result.mapAction);
+            }
+
+            toolResultBlocks.push({
+              toolResult: {
+                toolUseId,
+                content: [{ text: result.output }],
+              },
+            });
+          }
+
+          messages.push({ role: 'user', content: toolResultBlocks });
+        }
+
+        const lastMsg = messages[messages.length - 1];
+        const lastIsAssistantText =
+          lastMsg.role === 'assistant' &&
+          Array.isArray(lastMsg.content) &&
+          (lastMsg.content as ContentBlock[]).some((b) => b.text !== undefined);
+
+        const filter = new ThinkingFilter();
+
+        if (lastIsAssistantText) {
+          for (const block of lastMsg.content as ContentBlock[]) {
+            if (block.text) {
+              const clean = filter.push(block.text);
+              if (clean) send('text_delta', { text: clean });
+            }
+          }
+          const remaining = filter.flush();
+          if (remaining) send('text_delta', { text: remaining });
+          send('message_stop', { stopReason: 'end_turn' });
+        } else {
+          const streamResp = await client.send(
+            new ConverseStreamCommand({
+              modelId: MODEL_ID,
+              system: SYSTEM_PROMPT,
+              messages,
+              toolConfig: { tools: TOOLS },
+            })
+          );
+
+          if (streamResp.stream) {
+            for await (const event of streamResp.stream) {
+              if (event.contentBlockDelta?.delta?.text) {
+                const clean = filter.push(event.contentBlockDelta.delta.text);
                 if (clean) send('text_delta', { text: clean });
               }
-            }
-            const remaining = filter.flush();
-            if (remaining) send('text_delta', { text: remaining });
-            send('message_stop', { stopReason: 'end_turn' });
-          } else {
-            const streamResp = await client.send(
-              new ConverseStreamCommand({
-                modelId: MODEL_ID,
-                system: SYSTEM_PROMPT,
-                messages,
-                toolConfig: { tools: TOOLS },
-              })
-            );
-
-            if (streamResp.stream) {
-              for await (const event of streamResp.stream) {
-                if (event.contentBlockDelta?.delta?.text) {
-                  const clean = filter.push(event.contentBlockDelta.delta.text);
-                  if (clean) send('text_delta', { text: clean });
-                }
-                if (event.messageStop) {
-                  const remaining = filter.flush();
-                  if (remaining) send('text_delta', { text: remaining });
-                  send('message_stop', { stopReason: event.messageStop.stopReason });
-                }
+              if (event.messageStop) {
+                const remaining = filter.flush();
+                if (remaining) send('text_delta', { text: remaining });
+                send('message_stop', {
+                  stopReason: event.messageStop.stopReason,
+                });
               }
             }
+          } else {
+            send('message_stop', { stopReason: 'end_turn' });
           }
-        } catch (err) {
-          console.error('Stream error:', err);
-          send('error', { error: 'Stream interrupted' });
-        } finally {
-          controller.close();
         }
-      },
-    });
+      } catch (err) {
+        console.error('Chat handler failed, falling back to demo HeraBot:', err);
+        const reply = buildDemoHeraReply(body.messages);
+        for (const action of reply.mapActions) {
+          send('map_action', action);
+        }
+        const chunkSize = 24;
+        for (let i = 0; i < reply.text.length; i += chunkSize) {
+          send('text_delta', { text: reply.text.slice(i, i + chunkSize) });
+        }
+        send('message_stop', { stopReason: 'end_turn' });
+      } finally {
+        controller.close();
+      }
+    },
+  });
 
-    return new Response(stream, {
-      headers: {
-        'Content-Type': 'text/event-stream',
-        'Cache-Control': 'no-cache',
-        Connection: 'keep-alive',
-      },
-    });
-  } catch (err) {
-    console.error('Chat handler failed, falling back to demo HeraBot:', err);
-    const reply = buildDemoHeraReply(body.messages);
-    return new Response(createDemoHeraStream(reply), {
-      headers: {
-        'Content-Type': 'text/event-stream',
-        'Cache-Control': 'no-cache',
-        Connection: 'keep-alive',
-      },
-    });
-  }
+  return new Response(stream, {
+    headers: {
+      'Content-Type': 'text/event-stream',
+      'Cache-Control': 'no-cache',
+      Connection: 'keep-alive',
+    },
+  });
 }
