@@ -59,33 +59,18 @@ const SYSTEM_PROMPT: SystemContentBlock[] = [
       'You have access to a live database of real safety incident reports.',
 
       '\n\nCRITICAL RULE — DATA FIRST:',
-      '- If the user asks about ANY location / town / city, you MUST use tools before answering.',
-      '- Preferred flow for named places: call lookup_place, then in the next tool turn call BOTH',
-      '  focus_map AND search_incidents using the coordinates and radius_km from lookup_place.',
-      '- If you already know in-coverage coordinates, you may call focus_map + search_incidents immediately.',
-      '- If search_incidents returns data, your reply MUST be grounded in the REGION STATS block.',
-      '- You MUST include concrete numbers from REGION STATS: total reports, most frequent category,',
-      '  category share/count, and average severity (and high-severity count when present).',
-      '- Example: "In this Mississauga radius I see 18 reports. The most common category is Catcalling (8 reports),',
-      '  with average severity around 6.2/10; 4 reports are high-severity (7+)."',
-      '- Then add one short practical tip. Keep vibe/seasonal chatter secondary.',
-      '- DO NOT use the generic "March Break / weather" vibe fallback unless search_incidents returns EXACTLY zero results.',
-      '- Real data always takes priority over vibes.',
-      '- ABSOLUTE BAN: Never say "pilot phase" / "Hera is currently in a pilot phase" unless the latest',
-      '  search_incidents tool result explicitly contains COVERAGE=OUT_OF_SCOPE.',
+      '- NEW place named → call search_incidents (and lookup_place if needed) before answering.',
+      '- FOLLOW-UP about the same place (day vs night, categories, tips, "what about severity") →',
+      '  reuse the same coordinates/radius. Call search_incidents again if you need fresh REGION STATS.',
+      '  Do NOT call focus_map or lookup_place. Do NOT switch to another city.',
+      '- If search_incidents returns data, answer ONLY from REGION STATS numbers.',
+      '- Keep replies short: 2-4 sentences, one tip max. No long lectures.',
+      '- ABSOLUTE BAN: Never say "pilot phase" unless search_incidents returns COVERAGE=OUT_OF_SCOPE.',
 
-      '\n\nMANDATORY MAP SYNC:',
-      '- Whenever you discuss, mention, or respond about a specific city, neighborhood, or area,',
-      '  you MUST call focus_map with the coordinates AND a place_type.',
-      '- place_type rules (map pans EXACTLY to the lat/lng you pass — choose carefully):',
-      '  city → whole city asks ("Mississauga", "Toronto", "Hamilton") — use that city\'s best-known',
-      '    active center / downtown / main hotspot coordinates from lookup_place or your knowledge.',
-      '  neighborhood → districts/malls ("Square One", "Bramalea City Centre", "Queen West", "Port Credit").',
-      '  specific → intersections, campus buildings, GO stations, street addresses.',
-      '- Never substitute a different city pin than the one the user asked about.',
-      '- This applies even if no incidents are found — the map must always reflect the location being discussed.',
-      '- You MUST call focus_map and search_incidents together in the same tool-use turn.',
-      '- Prefer lookup_place for coordinates when available.',
+      '\n\nMAP / PIN RULES (simple):',
+      '- Pan ONLY when the user names a NEW place this turn (focus_map / lookup_place).',
+      '- If the user is asking a follow-up about the current place, leave the map pin alone.',
+      '- Never invent a different hotspot city (e.g. do not jump from Bramalea to Yonge & Eglinton).',
 
       '\n\nGEOGRAPHIC SCOPE / ALLOWLIST:',
       '- Hera covers Southern & Southwestern Ontario wherever incidents exist nearby.',
@@ -118,15 +103,10 @@ const SYSTEM_PROMPT: SystemContentBlock[] = [
       '  March Break means the ROM and AGO will be bustling but well-staffed. Stick to well-lit streets after dark and you\'re golden."',
 
       '\n\nINCIDENT SYNTHESIS (when incidents ARE found):',
-      '- Lead with REGION STATS numbers (count, top category, avg severity). Do not stay vague.',
-      '- It is REQUIRED to say the most frequent category and the average severity score out of 10.',
-      '- Mention a second category if REGION STATS provides one.',
-      '- Mention high-severity count when REGION STATS includes it.',
-      '- If activity_hotspot is present, you may name that hotspot place in your spoken answer (map still stays on the focus_map coordinates you chose).',
-      '- Optionally reference 1 recent example from the SAMPLE REPORTS section, without dumping a full list.',
-      '- Do NOT paste the entire numbered list back to the user.',
-      '- Always end with one practical, empowering safety tip tied to the dominant pattern',
-      '  (e.g. if Catcalling dominates near transit, recommend busier exits / well-lit corridors).',
+      '- Lead with concrete REGION STATS (count, top category, avg severity).',
+      '- For day vs night questions, use the DAY_VS_NIGHT stats block only — stay in the same place.',
+      '- Mention most_mentioned_place / activity_hotspot only if it is in the searched area.',
+      '- One short tip. Do not dump SAMPLE REPORTS.',
     ].join(' '),
   },
 ];
@@ -303,9 +283,10 @@ async function executeTool(
             `longitude=${place.longitude}`,
             `radius_km=${place.radiusKm}`,
             `place_type=${place.placeType}`,
-            'Map already panned to this place. NEXT: call search_incidents with these coordinates and radius_km (focus_map optional).',
+            'NEXT: call search_incidents with these coordinates and radius_km.',
             'FORBIDDEN: do not say pilot phase for this place.',
           ].join('\n'),
+          // Only pan when lookup resolves a place (new spot). Follow-ups should not call this.
           mapAction: buildFocusMapAction(
             place.latitude,
             place.longitude,
@@ -382,10 +363,6 @@ async function executeTool(
 
         console.log(`[TOOL] search_incidents found ${posts.length} results for coordinates ${lat}, ${lng} (radius ${radiusKm}km / ${maxDistMeters}m)`);
 
-        const searchPlaceType =
-          radiusKm <= 5 ? 'neighborhood' : radiusKm <= 8 ? 'neighborhood' : 'city';
-        const searchMapAction = buildFocusMapAction(lat, lng, searchPlaceType);
-
         if (posts.length === 0) {
           return {
             output: [
@@ -394,18 +371,33 @@ async function executeTool(
               'Respond positively: tell the user the area looks clear based on Hera reports,',
               'then share one short practical tip. Avoid long seasonal/vibe digressions.',
             ].join(' '),
-            mapAction: searchMapAction,
           };
         }
 
         const categoryCounts = new Map<string, number>();
         const locationCounts = new Map<string, number>();
         const severities: number[] = [];
+        const daySeverities: number[] = [];
+        const nightSeverities: number[] = [];
+        const dayCategoryCounts = new Map<string, number>();
+        const nightCategoryCounts = new Map<string, number>();
+        let dayCount = 0;
+        let nightCount = 0;
+
+        const isNightTs = (value: Date | string) => {
+          const hour = new Date(value).getHours();
+          return hour >= 21 || hour < 6;
+        };
 
         for (const post of posts) {
           const cats = post.categories?.length ? post.categories : ['uncategorized'];
+          const night = isNightTs(post.created_at);
+          if (night) nightCount += 1;
+          else dayCount += 1;
+          const bucket = night ? nightCategoryCounts : dayCategoryCounts;
           for (const cat of cats) {
             categoryCounts.set(cat, (categoryCounts.get(cat) ?? 0) + 1);
+            bucket.set(cat, (bucket.get(cat) ?? 0) + 1);
           }
           const loc = post.location_text?.trim();
           if (loc) {
@@ -413,28 +405,38 @@ async function executeTool(
           }
           if (typeof post.severity_index === 'number' && Number.isFinite(post.severity_index)) {
             severities.push(post.severity_index);
+            if (night) nightSeverities.push(post.severity_index);
+            else daySeverities.push(post.severity_index);
           }
         }
+
+        const avg = (values: number[]) =>
+          values.length > 0
+            ? values.reduce((sum, value) => sum + value, 0) / values.length
+            : null;
+        const topFrom = (counts: Map<string, number>) =>
+          Array.from(counts.entries()).sort((a, b) => b[1] - a[1])[0];
 
         const rankedCategories = Array.from(categoryCounts.entries()).sort(
           (a, b) => b[1] - a[1]
         );
         const topCategory = rankedCategories[0];
         const secondCategory = rankedCategories[1];
-        const avgSeverity =
-          severities.length > 0
-            ? severities.reduce((sum, value) => sum + value, 0) / severities.length
-            : null;
+        const avgSeverity = avg(severities);
         const highSeverityCount = severities.filter((value) => value >= 7).length;
         const topLocation = Array.from(locationCounts.entries()).sort(
           (a, b) => b[1] - a[1]
         )[0];
+        const dayTop = topFrom(dayCategoryCounts);
+        const nightTop = topFrom(nightCategoryCounts);
+        const dayAvg = avg(daySeverities);
+        const nightAvg = avg(nightSeverities);
 
         const hotspot = await findActivityHotspot(
           lat,
           lng,
-          radiusKm,
-          Math.min(2.2, Math.max(1.0, radiusKm * 0.15))
+          Math.min(radiusKm, 6),
+          Math.min(1.6, Math.max(0.8, radiusKm * 0.2))
         );
 
         const categorySummary = rankedCategories
@@ -477,15 +479,21 @@ async function executeTool(
               ? `- most_mentioned_place=${topLocation[0]} (${topLocation[1]} reports)`
               : '- most_mentioned_place=n/a',
             hotspot
-              ? `- activity_hotspot=${hotspot.label ?? 'cluster'} at (${hotspot.latitude.toFixed(4)}, ${hotspot.longitude.toFixed(4)}) with ${hotspot.count} nearby reports — mention this place when helpful`
+              ? `- activity_hotspot=${hotspot.label ?? 'cluster'} (${hotspot.count} nearby reports)`
               : '- activity_hotspot=n/a',
+            'DAY_VS_NIGHT (night = 9pm–6am local):',
+            `- day_reports=${dayCount}`,
+            `- day_avg_severity=${dayAvg === null ? 'n/a' : dayAvg.toFixed(1)}/10`,
+            `- day_top_category=${dayTop ? `${dayTop[0]} (${dayTop[1]})` : 'n/a'}`,
+            `- night_reports=${nightCount}`,
+            `- night_avg_severity=${nightAvg === null ? 'n/a' : nightAvg.toFixed(1)}/10`,
+            `- night_top_category=${nightTop ? `${nightTop[0]} (${nightTop[1]})` : 'n/a'}`,
             '',
             'SAMPLE REPORTS (optional color only — do not dump this whole list):',
             ...summaries,
             '',
-            'Answer requirements: state total_reports, most_frequent_category, and average_severity explicitly. Mention the activity hotspot place when present. Then one practical tip. Never claim pilot/out-of-coverage when COVERAGE=IN_SCOPE.',
+            'Answer briefly from REGION STATS / DAY_VS_NIGHT only. Stay on this searched location. Do not pan or invent another city. One short tip.',
           ].join('\n'),
-          mapAction: searchMapAction,
         };
       } catch (err) {
         console.error('search_incidents DB error:', err);
@@ -628,22 +636,40 @@ export async function POST(request: NextRequest) {
   const lastUserText =
     [...body.messages].reverse().find((m) => m.role === 'user')?.content ?? '';
   const matchedPlace = findCoveragePlace(lastUserText);
+  const contextPlace =
+    matchedPlace ??
+    [...body.messages]
+      .reverse()
+      .map((m) => findCoveragePlace(m.content))
+      .find((place) => place !== null) ??
+    null;
 
   const requestSystem: SystemContentBlock[] = matchedPlace
     ? [
         ...SYSTEM_PROMPT,
         {
           text: [
-            `TURN OVERRIDE: the user is asking about ${matchedPlace.name}, which is on the Hera in-coverage allowlist.`,
-            `Coordinates: latitude ${matchedPlace.latitude}, longitude ${matchedPlace.longitude}.`,
-            `place_type=${matchedPlace.placeType}.`,
-            `You MUST call focus_map with place_type=${matchedPlace.placeType} AND search_incidents with radius_km=${matchedPlace.radiusKm} using these exact coordinates before answering.`,
-            'The map will pan EXACTLY to these coordinates — do not substitute a different pin.',
-            'FORBIDDEN: do not say anything about a pilot phase or being out of coverage for this place.',
+            `TURN OVERRIDE (NEW PLACE): user asked about ${matchedPlace.name}.`,
+            `Use latitude ${matchedPlace.latitude}, longitude ${matchedPlace.longitude}, radius_km=${matchedPlace.radiusKm}, place_type=${matchedPlace.placeType}.`,
+            'Call search_incidents with those exact values before answering. Map already pans server-side.',
+            'FORBIDDEN: pilot-phase disclaimer for this place.',
           ].join(' '),
         },
       ]
-    : SYSTEM_PROMPT;
+    : contextPlace
+      ? [
+          ...SYSTEM_PROMPT,
+          {
+            text: [
+              `TURN OVERRIDE (FOLLOW-UP): stay on ${contextPlace.name}.`,
+              `Reuse latitude ${contextPlace.latitude}, longitude ${contextPlace.longitude}, radius_km=${contextPlace.radiusKm}.`,
+              'Call search_incidents with those coordinates if you need stats (day vs night, categories, etc.).',
+              'Do NOT call focus_map or lookup_place. Do NOT pan. Do NOT switch cities or neighborhoods.',
+              'Answer briefly from REGION STATS / DAY_VS_NIGHT only.',
+            ].join(' '),
+          },
+        ]
+      : SYSTEM_PROMPT;
 
   const client = getBedrockClient();
 
