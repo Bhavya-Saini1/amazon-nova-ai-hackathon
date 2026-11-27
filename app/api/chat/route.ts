@@ -278,7 +278,8 @@ async function executeTool(
             `latitude=${place.latitude}`,
             `longitude=${place.longitude}`,
             `radius_km=${place.radiusKm}`,
-            'NEXT: call focus_map (place_type=city) AND search_incidents with these coordinates and radius_km.',
+            `place_type=${place.placeType}`,
+            'NEXT: call focus_map with this place_type AND search_incidents with these coordinates and radius_km.',
             'FORBIDDEN: do not say pilot phase for this place.',
           ].join('\n'),
         };
@@ -619,7 +620,11 @@ export async function POST(request: NextRequest) {
           text: [
             `TURN OVERRIDE: the user is asking about ${matchedPlace.name}, which is on the Hera in-coverage allowlist.`,
             `Coordinates: latitude ${matchedPlace.latitude}, longitude ${matchedPlace.longitude}.`,
-            `You MUST call focus_map (place_type=city) AND search_incidents with radius_km=${matchedPlace.radiusKm} before answering.`,
+            `place_type=${matchedPlace.placeType}.`,
+            `You MUST call focus_map with place_type=${matchedPlace.placeType} AND search_incidents with radius_km=${matchedPlace.radiusKm} using these exact coordinates before answering.`,
+            matchedPlace.placeType === 'city'
+              ? 'For city queries the map may snap to the densest hotspot inside that city.'
+              : 'For neighborhood/specific queries the map must stay on these coordinates — do not substitute another Brampton/Toronto pin.',
             'FORBIDDEN: do not say anything about a pilot phase or being out of coverage for this place.',
           ].join(' '),
         },

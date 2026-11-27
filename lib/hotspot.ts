@@ -16,11 +16,11 @@ const PLACE_DEFAULTS: Record<
   PlaceType,
   { searchRadiusKm: number; bandwidthKm: number; zoom: number; snap: boolean }
 > = {
-  // Keep the search inside the asked city so we don't jump to a hotter neighbor city
+  // Broad city ask → snap to densest hotspot inside that city
   city: { searchRadiusKm: 10, bandwidthKm: 2.0, zoom: 12.8, snap: true },
-  // Neighborhood ask → tighter blob inside that district
-  neighborhood: { searchRadiusKm: 5, bandwidthKm: 1.0, zoom: 14, snap: true },
-  // Intersection / campus building / exact pin → honor the coordinates
+  // Named district / mall / campus → stay on the queried pin
+  neighborhood: { searchRadiusKm: 0, bandwidthKm: 0, zoom: 14.2, snap: false },
+  // Intersection / exact address → tighter zoom on the pin
   specific: { searchRadiusKm: 0, bandwidthKm: 0, zoom: 15.6, snap: false },
 };
 
@@ -129,8 +129,9 @@ export async function findActivityHotspot(
       localDensity += other.weight * (1 - u * u);
     }
 
+    // Mild pull toward the requested city center — density still wins inside the city.
     const distFromQuery = haversineKm(latitude, longitude, center.lat, center.lng);
-    const centerBias = Math.max(0.2, 1 - (distFromQuery / Math.max(radiusKm, 1)) ** 1.35);
+    const centerBias = Math.max(0.55, 1 - (distFromQuery / Math.max(radiusKm, 1)) ** 2);
     const score = localDensity * centerBias;
 
     if (score > bestScore) {
