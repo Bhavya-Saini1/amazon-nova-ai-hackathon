@@ -235,6 +235,30 @@ interface ToolExecResult {
   mapAction?: { type: string; payload: Record<string, unknown> };
 }
 
+function zoomForPlaceType(placeType: ReturnType<typeof normalizePlaceType>): number {
+  if (placeType === 'specific') return 15.6;
+  if (placeType === 'neighborhood') return 14.2;
+  return 12.8;
+}
+
+function buildFocusMapAction(
+  latitude: number,
+  longitude: number,
+  placeTypeInput?: unknown
+): ToolExecResult['mapAction'] | undefined {
+  if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return undefined;
+  const placeType = normalizePlaceType(placeTypeInput);
+  return {
+    type: 'focus_map',
+    payload: {
+      latitude,
+      longitude,
+      zoom: zoomForPlaceType(placeType),
+      place_type: placeType,
+    },
+  };
+}
+
 /** Rough Southern / Southwestern Ontario coverage box matching seeded data. */
 function isInHeraCoverage(lat: number, lng: number): boolean {
   return (
@@ -279,9 +303,14 @@ async function executeTool(
             `longitude=${place.longitude}`,
             `radius_km=${place.radiusKm}`,
             `place_type=${place.placeType}`,
-            'NEXT: call focus_map with this place_type AND search_incidents with these coordinates and radius_km.',
+            'Map already panned to this place. NEXT: call search_incidents with these coordinates and radius_km (focus_map optional).',
             'FORBIDDEN: do not say pilot phase for this place.',
           ].join('\n'),
+          mapAction: buildFocusMapAction(
+            place.latitude,
+            place.longitude,
+            place.placeType
+          ),
         };
       }
 
@@ -298,24 +327,15 @@ async function executeTool(
       const lat = Number(input.latitude);
       const lng = Number(input.longitude);
       const placeType = normalizePlaceType(input.place_type);
-      const zoom =
-        placeType === 'specific' ? 15.6 : placeType === 'neighborhood' ? 14.2 : 12.8;
+      const mapAction = buildFocusMapAction(lat, lng, placeType);
 
-      if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+      if (!mapAction) {
         return { output: 'focus_map failed: invalid coordinates.' };
       }
 
       return {
-        output: `Map panned to exact coordinates ${lat.toFixed(4)}, ${lng.toFixed(4)} (zoom ${zoom}, place_type=${placeType}).`,
-        mapAction: {
-          type: 'focus_map',
-          payload: {
-            latitude: lat,
-            longitude: lng,
-            zoom,
-            place_type: placeType,
-          },
-        },
+        output: `Map panned to exact coordinates ${lat.toFixed(4)}, ${lng.toFixed(4)} (zoom ${mapAction.payload.zoom}, place_type=${placeType}).`,
+        mapAction,
       };
     }
 
@@ -362,6 +382,10 @@ async function executeTool(
 
         console.log(`[TOOL] search_incidents found ${posts.length} results for coordinates ${lat}, ${lng} (radius ${radiusKm}km / ${maxDistMeters}m)`);
 
+        const searchPlaceType =
+          radiusKm <= 5 ? 'neighborhood' : radiusKm <= 8 ? 'neighborhood' : 'city';
+        const searchMapAction = buildFocusMapAction(lat, lng, searchPlaceType);
+
         if (posts.length === 0) {
           return {
             output: [
@@ -370,6 +394,7 @@ async function executeTool(
               'Respond positively: tell the user the area looks clear based on Hera reports,',
               'then share one short practical tip. Avoid long seasonal/vibe digressions.',
             ].join(' '),
+            mapAction: searchMapAction,
           };
         }
 
@@ -460,6 +485,7 @@ async function executeTool(
             '',
             'Answer requirements: state total_reports, most_frequent_category, and average_severity explicitly. Mention the activity hotspot place when present. Then one practical tip. Never claim pilot/out-of-coverage when COVERAGE=IN_SCOPE.',
           ].join('\n'),
+          mapAction: searchMapAction,
         };
       } catch (err) {
         console.error('search_incidents DB error:', err);
@@ -641,6 +667,19 @@ export async function POST(request: NextRequest) {
       }
 
       try {
+        // Always pan as soon as we recognize a place in the user message —
+        // don't wait for the model to remember focus_map.
+        if (matchedPlace) {
+          const immediatePan = buildFocusMapAction(
+            matchedPlace.latitude,
+            matchedPlace.longitude,
+            matchedPlace.placeType
+          );
+          if (immediatePan) {
+            send('map_action', immediatePan);
+          }
+        }
+
         let round = 0;
         while (round < MAX_TOOL_ROUNDS) {
           round++;

@@ -19,21 +19,53 @@ export const MapContainer = forwardRef<MapContainerHandle>(
   function MapContainer(_props, ref) {
     const mapContainerRef = useRef<HTMLDivElement | null>(null);
     const mapRef = useRef<mapboxgl.Map | null>(null);
+    const pendingFlyToRef = useRef<{ lat: number; lng: number; zoom: number } | null>(
+      null
+    );
     const [error, setError] = useState<string | null>(null);
 
     const hasToken = useMemo(() => Boolean(MAPBOX_TOKEN), []);
 
-    useImperativeHandle(ref, () => ({
-      flyTo(lat: number, lng: number, zoom = 14) {
-        if (!mapRef.current) return;
-        const safeZoom = Number.isFinite(zoom) ? Math.min(Math.max(zoom, 10), 17) : 14;
-        mapRef.current.flyTo({
+    const runFlyTo = (lat: number, lng: number, zoom = 14) => {
+      const safeZoom = Number.isFinite(zoom) ? Math.min(Math.max(zoom, 10), 17) : 14;
+      const map = mapRef.current;
+      if (!map) {
+        pendingFlyToRef.current = { lat, lng, zoom: safeZoom };
+        return;
+      }
+
+      const fly = () => {
+        map.flyTo({
           center: [lng, lat],
           zoom: safeZoom,
           pitch: safeZoom >= 14.5 ? 50 : 40,
           essential: true,
           speed: 1.15,
         });
+      };
+
+      if (map.isStyleLoaded()) {
+        fly();
+      } else {
+        pendingFlyToRef.current = { lat, lng, zoom: safeZoom };
+        map.once('load', () => {
+          const pending = pendingFlyToRef.current;
+          if (!pending || !mapRef.current) return;
+          pendingFlyToRef.current = null;
+          mapRef.current.flyTo({
+            center: [pending.lng, pending.lat],
+            zoom: pending.zoom,
+            pitch: pending.zoom >= 14.5 ? 50 : 40,
+            essential: true,
+            speed: 1.15,
+          });
+        });
+      }
+    };
+
+    useImperativeHandle(ref, () => ({
+      flyTo(lat: number, lng: number, zoom = 14) {
+        runFlyTo(lat, lng, zoom);
       },
       filterByCategory(category: string) {
         if (!mapRef.current) return;
@@ -149,6 +181,18 @@ export const MapContainer = forwardRef<MapContainerHandle>(
             (map.getSource('reports') as mapboxgl.GeoJSONSource).setData(
               geojson
             );
+          }
+
+          const pending = pendingFlyToRef.current;
+          if (pending) {
+            pendingFlyToRef.current = null;
+            map.flyTo({
+              center: [pending.lng, pending.lat],
+              zoom: pending.zoom,
+              pitch: pending.zoom >= 14.5 ? 50 : 40,
+              essential: true,
+              speed: 1.15,
+            });
           }
         });
       };
