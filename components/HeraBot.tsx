@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 interface HeraBotProps {
-  onFocusMap: (lat: number, lng: number) => void;
+  onFocusMap: (lat: number, lng: number, zoom?: number) => void;
   onFilter: (category: string) => void;
 }
 
@@ -108,7 +108,12 @@ export function HeraBot({ onFocusMap, onFilter }: HeraBotProps) {
               case 'map_action': {
                 const payload = data.payload as Record<string, unknown> | undefined;
                 if (data.type === 'focus_map' && payload) {
-                  onFocusMap(Number(payload.latitude), Number(payload.longitude));
+                  const zoomRaw = Number(payload.zoom);
+                  onFocusMap(
+                    Number(payload.latitude),
+                    Number(payload.longitude),
+                    Number.isFinite(zoomRaw) ? zoomRaw : undefined
+                  );
                 } else if (data.type === 'filter_incidents' && payload) {
                   onFilter(String(payload.category));
                 }

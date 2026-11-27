@@ -11,7 +11,7 @@ const MISSING_TOKEN_MSG =
 const HEAT_LAYER_ID = 'reports-heat';
 
 export interface MapContainerHandle {
-  flyTo: (lat: number, lng: number) => void;
+  flyTo: (lat: number, lng: number, zoom?: number) => void;
   filterByCategory: (category: string) => void;
 }
 
@@ -24,14 +24,15 @@ export const MapContainer = forwardRef<MapContainerHandle>(
     const hasToken = useMemo(() => Boolean(MAPBOX_TOKEN), []);
 
     useImperativeHandle(ref, () => ({
-      flyTo(lat: number, lng: number) {
+      flyTo(lat: number, lng: number, zoom = 14) {
         if (!mapRef.current) return;
+        const safeZoom = Number.isFinite(zoom) ? Math.min(Math.max(zoom, 10), 17) : 14;
         mapRef.current.flyTo({
           center: [lng, lat],
-          zoom: 14,
-          pitch: 45,
+          zoom: safeZoom,
+          pitch: safeZoom >= 14.5 ? 50 : 40,
           essential: true,
-          speed: 1.2,
+          speed: 1.15,
         });
       },
       filterByCategory(category: string) {

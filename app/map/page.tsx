@@ -9,8 +9,8 @@ import { HeraBot } from '@/components/HeraBot';
 export default function MapPage() {
   const mapHandle = useRef<MapContainerHandle>(null);
 
-  const handleFocusMap = useCallback((lat: number, lng: number) => {
-    mapHandle.current?.flyTo(lat, lng);
+  const handleFocusMap = useCallback((lat: number, lng: number, zoom?: number) => {
+    mapHandle.current?.flyTo(lat, lng, zoom);
   }, []);
 
   const handleFilter = useCallback((category: string) => {

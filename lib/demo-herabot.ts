@@ -90,6 +90,7 @@ export function buildDemoHeraReply(messages: Array<{ role: string; content: stri
           payload: {
             latitude: place.latitude,
             longitude: place.longitude,
+            zoom: 13,
           },
         },
       ],

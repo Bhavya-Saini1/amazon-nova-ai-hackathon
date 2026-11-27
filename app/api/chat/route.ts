@@ -14,6 +14,7 @@ import {
   shouldUseDemoHeraBot,
 } from '@/lib/demo-herabot';
 import { connectDB } from '@/lib/db/mongodb';
+import { findActivityHotspot, resolveMapFocus } from '@/lib/hotspot';
 import { Post } from '@/lib/models/Post';
 import { getAppSession } from '@/lib/session';
 
@@ -59,12 +60,18 @@ const SYSTEM_PROMPT: SystemContentBlock[] = [
 
       '\n\nMANDATORY MAP SYNC:',
       '- Whenever you discuss, mention, or respond about a specific city, neighborhood, or area,',
-      '  you MUST call focus_map with the coordinates.',
+      '  you MUST call focus_map with the coordinates AND a place_type.',
+      '- place_type rules:',
+      '  city → whole city asks ("Mississauga", "Toronto", "Hamilton"). Server snaps the camera to the',
+      '    densest incident hotspot in that city — do NOT try to pick a hotspot yourself.',
+      '  neighborhood → districts ("Square One", "Queen West", "North York", "Port Credit").',
+      '  specific → exact pins only: intersections ("Hurontario & Burnhamthorpe"), campus buildings,',
+      '    GO stations named precisely, street addresses. These keep the exact coordinates.',
       '- This applies even if no incidents are found — the map must always reflect the location being discussed.',
       '- You MUST call focus_map and search_incidents together in the same tool-use turn.',
-      '- Common coordinates for reference:',
+      '- Common city-center coordinates for reference (hotspot snap happens server-side):',
       '  Toronto downtown: latitude 43.6532, longitude -79.3832',
-      '  Mississauga / UTM: latitude 43.5480, longitude -79.6625',
+      '  Mississauga / City Centre: latitude 43.5890, longitude -79.6441',
       '  North York: latitude 43.7615, longitude -79.4111',
       '  Scarborough: latitude 43.7731, longitude -79.2578',
       '  Brampton: latitude 43.7315, longitude -79.7624',
@@ -102,6 +109,7 @@ const SYSTEM_PROMPT: SystemContentBlock[] = [
       '- It is REQUIRED to say the most frequent category and the average severity score out of 10.',
       '- Mention a second category if REGION STATS provides one.',
       '- Mention high-severity count when REGION STATS includes it.',
+      '- If activity_hotspot is present, name that hotspot place (map already zooms there for city/neighborhood asks).',
       '- Optionally reference 1 recent example from the SAMPLE REPORTS section, without dumping a full list.',
       '- Do NOT paste the entire numbered list back to the user.',
       '- Always end with one practical, empowering safety tip tied to the dominant pattern',
@@ -115,13 +123,24 @@ const TOOLS: Tool[] = [
     toolSpec: {
       name: 'focus_map',
       description:
-        'Pan and zoom the map to a specific location. Use when the user mentions a city, neighborhood, or address.',
+        'Pan and zoom the map. For city/neighborhood queries the server snaps to the densest nearby incident hotspot. Use place_type=specific only for intersections, addresses, or exact POIs.',
       inputSchema: {
         json: {
           type: 'object',
           properties: {
-            latitude: { type: 'number', description: 'Latitude of the target location.' },
-            longitude: { type: 'number', description: 'Longitude of the target location.' },
+            latitude: {
+              type: 'number',
+              description: 'Latitude of the requested place (city center, neighborhood, or exact pin).',
+            },
+            longitude: {
+              type: 'number',
+              description: 'Longitude of the requested place (city center, neighborhood, or exact pin).',
+            },
+            place_type: {
+              type: 'string',
+              description:
+                'city | neighborhood | specific. city/neighborhood snap to activity hotspots; specific keeps exact coords.',
+            },
           },
           required: ['latitude', 'longitude'],
         },
@@ -192,10 +211,36 @@ async function executeTool(
     case 'focus_map': {
       const lat = Number(input.latitude);
       const lng = Number(input.longitude);
-      return {
-        output: `Map panned to ${lat.toFixed(4)}, ${lng.toFixed(4)}.`,
-        mapAction: { type: 'focus_map', payload: { latitude: lat, longitude: lng } },
-      };
+      try {
+        const focus = await resolveMapFocus(lat, lng, input.place_type);
+        const snapNote = focus.snapped
+          ? ` Snapped to activity hotspot` +
+            (focus.label ? ` near "${focus.label}"` : '') +
+            ` (${focus.reportCount} clustered reports).`
+          : ' Exact coordinates used (specific place or no nearby cluster).';
+        return {
+          output: `Map focused at ${focus.latitude.toFixed(4)}, ${focus.longitude.toFixed(4)} (zoom ${focus.zoom}).${snapNote}`,
+          mapAction: {
+            type: 'focus_map',
+            payload: {
+              latitude: focus.latitude,
+              longitude: focus.longitude,
+              zoom: focus.zoom,
+              snapped: focus.snapped,
+              label: focus.label,
+            },
+          },
+        };
+      } catch (err) {
+        console.error('focus_map hotspot resolve failed:', err);
+        return {
+          output: `Map panned to ${lat.toFixed(4)}, ${lng.toFixed(4)}.`,
+          mapAction: {
+            type: 'focus_map',
+            payload: { latitude: lat, longitude: lng, zoom: 13 },
+          },
+        };
+      }
     }
 
     case 'filter_incidents': {
@@ -283,6 +328,8 @@ async function executeTool(
           (a, b) => b[1] - a[1]
         )[0];
 
+        const hotspot = await findActivityHotspot(lat, lng, radiusKm, 0.01);
+
         const categorySummary = rankedCategories
           .slice(0, 4)
           .map(([name, count]) => {
@@ -321,11 +368,14 @@ async function executeTool(
             topLocation
               ? `- most_mentioned_place=${topLocation[0]} (${topLocation[1]} reports)`
               : '- most_mentioned_place=n/a',
+            hotspot
+              ? `- activity_hotspot=${hotspot.label ?? 'cluster'} at (${hotspot.latitude.toFixed(4)}, ${hotspot.longitude.toFixed(4)}) with ${hotspot.count} nearby reports — mention this place when helpful`
+              : '- activity_hotspot=n/a',
             '',
             'SAMPLE REPORTS (optional color only — do not dump this whole list):',
             ...summaries,
             '',
-            'Answer requirements: state total_reports, most_frequent_category, and average_severity explicitly. Then one practical tip.',
+            'Answer requirements: state total_reports, most_frequent_category, and average_severity explicitly. Mention the activity hotspot place when present. Then one practical tip.',
           ].join('\n'),
         };
       } catch (err) {
