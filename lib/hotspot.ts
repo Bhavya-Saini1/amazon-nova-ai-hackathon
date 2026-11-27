@@ -174,7 +174,7 @@ export async function findActivityHotspot(
 
   let topLabel: string | null = null;
   let topLabelCount = 0;
-  for (const [label, labelCount] of labels.entries()) {
+  for (const [label, labelCount] of Array.from(labels.entries())) {
     if (labelCount > topLabelCount) {
       topLabel = label;
       topLabelCount = labelCount;
