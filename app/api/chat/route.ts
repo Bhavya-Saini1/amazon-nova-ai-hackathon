@@ -521,7 +521,7 @@ export async function POST(request: NextRequest) {
         }
       } catch (err) {
         console.error('Chat handler failed, falling back to demo HeraBot:', err);
-        const reply = buildDemoHeraReply(body.messages);
+        const reply = buildDemoHeraReply(body.messages ?? []);
         for (const action of reply.mapActions) {
           send('map_action', action);
         }
