@@ -3,6 +3,11 @@
   "version": "0.1.0",
   "private": true,
   "description": "Hera — community safety reports, Mapbox heatmap, and Nova agent over MongoDB geospatial data",
+  "homepage": "https://amazon-nova-ai-hackathon-zeta.vercel.app",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Bhavya-Saini1/amazon-nova-ai-hackathon.git"
+  },
   "engines": {
     "node": ">=20"
   },
