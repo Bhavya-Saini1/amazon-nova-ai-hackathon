@@ -13,6 +13,10 @@ import {
   createDemoHeraStream,
   shouldUseDemoHeraBot,
 } from '@/lib/demo-herabot';
+import {
+  coverageAllowlistSummary,
+  findCoveragePlace,
+} from '@/lib/coverage-places';
 import { connectDB } from '@/lib/db/mongodb';
 import { findActivityHotspot, resolveMapFocus } from '@/lib/hotspot';
 import { Post } from '@/lib/models/Post';
@@ -26,7 +30,15 @@ export const maxDuration = 60;
 // Prefer the US inference profile — more reliable than on-demand model IDs.
 const MODEL_ID =
   process.env.BEDROCK_MODEL_ID?.trim() || 'us.amazon.nova-lite-v1:0';
-const MAX_TOOL_ROUNDS = 3;
+const MAX_TOOL_ROUNDS = 4;
+
+const PILOT_PHRASE_RE =
+  /(?:sorry,?\s*)?Hera is currently in a pilot phase for Southern Ontario\.[^\n]*/gi;
+
+function scrubUnauthorizedPilotPhrase(text: string, allowPilot: boolean): string {
+  if (allowPilot) return text;
+  return text.replace(PILOT_PHRASE_RE, '').replace(/\n{3,}/g, '\n\n').trimStart();
+}
 
 function getBedrockClient() {
   return new BedrockRuntimeClient({
@@ -47,8 +59,10 @@ const SYSTEM_PROMPT: SystemContentBlock[] = [
       'You have access to a live database of real safety incident reports.',
 
       '\n\nCRITICAL RULE — DATA FIRST:',
-      '- If the user asks about ANY location, you MUST call BOTH focus_map AND search_incidents in the SAME turn.',
-      '- Call them together — do NOT wait for one to finish before calling the other.',
+      '- If the user asks about ANY location / town / city, you MUST use tools before answering.',
+      '- Preferred flow for named places: call lookup_place, then in the next tool turn call BOTH',
+      '  focus_map AND search_incidents using the coordinates and radius_km from lookup_place.',
+      '- If you already know in-coverage coordinates, you may call focus_map + search_incidents immediately.',
       '- If search_incidents returns data, your reply MUST be grounded in the REGION STATS block.',
       '- You MUST include concrete numbers from REGION STATS: total reports, most frequent category,',
       '  category share/count, and average severity (and high-severity count when present).',
@@ -57,6 +71,8 @@ const SYSTEM_PROMPT: SystemContentBlock[] = [
       '- Then add one short practical tip. Keep vibe/seasonal chatter secondary.',
       '- DO NOT use the generic "March Break / weather" vibe fallback unless search_incidents returns EXACTLY zero results.',
       '- Real data always takes priority over vibes.',
+      '- ABSOLUTE BAN: Never say "pilot phase" / "Hera is currently in a pilot phase" unless the latest',
+      '  search_incidents tool result explicitly contains COVERAGE=OUT_OF_SCOPE.',
 
       '\n\nMANDATORY MAP SYNC:',
       '- Whenever you discuss, mention, or respond about a specific city, neighborhood, or area,',
@@ -69,31 +85,18 @@ const SYSTEM_PROMPT: SystemContentBlock[] = [
       '    GO stations named precisely, street addresses. These keep the exact coordinates.',
       '- This applies even if no incidents are found — the map must always reflect the location being discussed.',
       '- You MUST call focus_map and search_incidents together in the same tool-use turn.',
-      '- Common city-center coordinates for reference (hotspot snap happens server-side):',
-      '  Toronto downtown: latitude 43.6532, longitude -79.3832',
-      '  Mississauga / City Centre: latitude 43.5890, longitude -79.6441',
-      '  North York: latitude 43.7615, longitude -79.4111',
-      '  Scarborough: latitude 43.7731, longitude -79.2578',
-      '  Brampton: latitude 43.7315, longitude -79.7624',
-      '  Hamilton: latitude 43.2557, longitude -79.8711',
-      '  Kitchener-Waterloo: latitude 43.4643, longitude -80.5204',
-      '  London ON: latitude 42.9849, longitude -81.2453',
+      '- Prefer lookup_place for coordinates. Hotspot snap for city/neighborhood happens server-side.',
 
-      '\n\nGEOGRAPHIC SCOPE:',
-      '- Coverage = wherever Hera has incident data across Southern / Southwestern Ontario.',
-      '- That includes big cities AND smaller towns: Toronto, Mississauga, Brampton, Oakville, Burlington,',
-      '  Hamilton, Niagara / St. Catharines / Niagara Falls, Kitchener-Waterloo, Cambridge, Guelph,',
-      '  London Ontario, Stratford, Listowel, Woodstock, Brantford, St. Thomas, Chatham, Windsor,',
-      '  Oshawa / Whitby / Ajax / Pickering, Barrie, Orillia, and surrounding rural corridors.',
-      '- CRITICAL disambiguation: "London" = London Ontario (42.9849, -81.2453), NEVER London UK.',
-      '- HARD RULE: For EVERY place ask, call focus_map + search_incidents FIRST. Never skip tools.',
-      '- If REGION STATS shows total_reports > 0, you are IN COVERAGE. Answer ONLY from those stats.',
-      '  NEVER say the pilot-phase line when reports exist.',
-      '- If REGION STATS shows total_reports = 0 for a Southern Ontario town, say the area looks quiet in Hera',
-      '  data right now and give one short local tip. Do NOT use the pilot-phase disclaimer for Ontario towns.',
-      '- The pilot-phase sentence is ONLY allowed when the user clearly asks about a place outside Ontario',
-      '  (e.g. Vancouver, Montreal, Calgary, New York, or London UK/England explicitly):',
-      '  "Hera is currently in a pilot phase for Southern Ontario. I can still share general safety tips for your area!"',
+      '\n\nGEOGRAPHIC SCOPE / ALLOWLIST:',
+      '- Hera covers Southern & Southwestern Ontario wherever incidents exist nearby.',
+      '- IN-COVERAGE allowlist (always search these — never invent a pilot disclaimer):',
+      `  ${coverageAllowlistSummary()}.`,
+      '- Small towns on/near corridors count too (Fergus, Elora, Listowel, Stratford, Woodstock, etc.).',
+      '- CRITICAL: "London" = London Ontario. NEVER London UK unless the user says UK/England.',
+      '- HARD RULE: call lookup_place and/or focus_map + search_incidents before any place answer.',
+      '- If REGION STATS total_reports > 0 → answer from stats only.',
+      '- If IN_SCOPE and total_reports = 0 → say it looks quiet in Hera data + one short tip.',
+      '- The pilot-phase sentence is ONLY allowed when a tool result says COVERAGE=OUT_OF_SCOPE.',
       '- NEVER refuse to help entirely — always offer value.',
 
       '\n\nTONE & PERSONALITY:',
@@ -129,6 +132,25 @@ const SYSTEM_PROMPT: SystemContentBlock[] = [
 ];
 
 const TOOLS: Tool[] = [
+  {
+    toolSpec: {
+      name: 'lookup_place',
+      description:
+        'Resolve a city/town name to in-coverage Southern Ontario coordinates. Call this for any named place (especially smaller towns like Fergus, Listowel, Elora, Stratford) BEFORE answering. Returns lat/lng and suggested search radius.',
+      inputSchema: {
+        json: {
+          type: 'object',
+          properties: {
+            name: {
+              type: 'string',
+              description: 'Place name from the user, e.g. "Fergus", "Listowel", "London".',
+            },
+          },
+          required: ['name'],
+        },
+      },
+    },
+  },
   {
     toolSpec: {
       name: 'focus_map',
@@ -245,6 +267,32 @@ async function executeTool(
   input: Record<string, unknown>
 ): Promise<ToolExecResult> {
   switch (name) {
+    case 'lookup_place': {
+      const placeName = String(input.name ?? '').trim();
+      const place = findCoveragePlace(placeName);
+      if (place) {
+        return {
+          output: [
+            `PLACE_RESOLVED name=${place.name}`,
+            'IN_COVERAGE=true',
+            `latitude=${place.latitude}`,
+            `longitude=${place.longitude}`,
+            `radius_km=${place.radiusKm}`,
+            'NEXT: call focus_map (place_type=city) AND search_incidents with these coordinates and radius_km.',
+            'FORBIDDEN: do not say pilot phase for this place.',
+          ].join('\n'),
+        };
+      }
+
+      return {
+        output: [
+          `PLACE_UNRESOLVED name=${placeName || 'unknown'}`,
+          'If this is still in Southern/Southwestern Ontario, estimate coordinates and call',
+          'focus_map + search_incidents anyway. Only treat as out-of-scope if clearly outside Ontario.',
+        ].join(' '),
+      };
+    }
+
     case 'focus_map': {
       const lat = Number(input.latitude);
       const lng = Number(input.longitude);
@@ -560,6 +608,24 @@ export async function POST(request: NextRequest) {
     content: [{ text: m.content }],
   }));
 
+  const lastUserText =
+    [...body.messages].reverse().find((m) => m.role === 'user')?.content ?? '';
+  const matchedPlace = findCoveragePlace(lastUserText);
+
+  const requestSystem: SystemContentBlock[] = matchedPlace
+    ? [
+        ...SYSTEM_PROMPT,
+        {
+          text: [
+            `TURN OVERRIDE: the user is asking about ${matchedPlace.name}, which is on the Hera in-coverage allowlist.`,
+            `Coordinates: latitude ${matchedPlace.latitude}, longitude ${matchedPlace.longitude}.`,
+            `You MUST call focus_map (place_type=city) AND search_incidents with radius_km=${matchedPlace.radiusKm} before answering.`,
+            'FORBIDDEN: do not say anything about a pilot phase or being out of coverage for this place.',
+          ].join(' '),
+        },
+      ]
+    : SYSTEM_PROMPT;
+
   const client = getBedrockClient();
 
   // Start SSE immediately so the client isn't stuck waiting on the whole
@@ -567,11 +633,18 @@ export async function POST(request: NextRequest) {
   const stream = new ReadableStream({
     async start(controller) {
       const encoder = new TextEncoder();
+      let allowPilotPhrase = !matchedPlace;
+      let sawInScopeCoverage = Boolean(matchedPlace);
 
       function send(event: string, data: unknown) {
         controller.enqueue(
           encoder.encode(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`)
         );
+      }
+
+      function emitText(text: string) {
+        const clean = scrubUnauthorizedPilotPhrase(text, allowPilotPhrase);
+        if (clean) send('text_delta', { text: clean });
       }
 
       try {
@@ -582,7 +655,7 @@ export async function POST(request: NextRequest) {
           const response = await client.send(
             new ConverseCommand({
               modelId: MODEL_ID,
-              system: SYSTEM_PROMPT,
+              system: requestSystem,
               messages,
               toolConfig: { tools: TOOLS },
             })
@@ -613,6 +686,15 @@ export async function POST(request: NextRequest) {
             const toolUseId = block.toolUse.toolUseId ?? '';
             const result = await executeTool(toolName, toolInput);
 
+            if (result.output.includes('COVERAGE=IN_SCOPE_SOUTHERN_ONTARIO') ||
+                result.output.includes('IN_COVERAGE=true')) {
+              sawInScopeCoverage = true;
+              allowPilotPhrase = false;
+            }
+            if (result.output.includes('COVERAGE=OUT_OF_SCOPE')) {
+              allowPilotPhrase = !sawInScopeCoverage;
+            }
+
             if (result.mapAction) {
               // Fly the map as soon as a tool requests it.
               send('map_action', result.mapAction);
@@ -641,17 +723,17 @@ export async function POST(request: NextRequest) {
           for (const block of lastMsg.content as ContentBlock[]) {
             if (block.text) {
               const clean = filter.push(block.text);
-              if (clean) send('text_delta', { text: clean });
+              if (clean) emitText(clean);
             }
           }
           const remaining = filter.flush();
-          if (remaining) send('text_delta', { text: remaining });
+          if (remaining) emitText(remaining);
           send('message_stop', { stopReason: 'end_turn' });
         } else {
           const streamResp = await client.send(
             new ConverseStreamCommand({
               modelId: MODEL_ID,
-              system: SYSTEM_PROMPT,
+              system: requestSystem,
               messages,
               toolConfig: { tools: TOOLS },
             })
@@ -661,11 +743,11 @@ export async function POST(request: NextRequest) {
             for await (const event of streamResp.stream) {
               if (event.contentBlockDelta?.delta?.text) {
                 const clean = filter.push(event.contentBlockDelta.delta.text);
-                if (clean) send('text_delta', { text: clean });
+                if (clean) emitText(clean);
               }
               if (event.messageStop) {
                 const remaining = filter.flush();
-                if (remaining) send('text_delta', { text: remaining });
+                if (remaining) emitText(remaining);
                 send('message_stop', {
                   stopReason: event.messageStop.stopReason,
                 });
