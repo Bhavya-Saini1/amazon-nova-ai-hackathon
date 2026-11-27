@@ -18,7 +18,7 @@ import {
   findCoveragePlace,
 } from '@/lib/coverage-places';
 import { connectDB } from '@/lib/db/mongodb';
-import { findActivityHotspot, resolveMapFocus } from '@/lib/hotspot';
+import { findActivityHotspot, normalizePlaceType } from '@/lib/hotspot';
 import { Post } from '@/lib/models/Post';
 import { getAppSession } from '@/lib/session';
 
@@ -77,15 +77,15 @@ const SYSTEM_PROMPT: SystemContentBlock[] = [
       '\n\nMANDATORY MAP SYNC:',
       '- Whenever you discuss, mention, or respond about a specific city, neighborhood, or area,',
       '  you MUST call focus_map with the coordinates AND a place_type.',
-      '- place_type rules:',
-      '  city → whole city asks ("Mississauga", "Toronto", "Hamilton"). Server snaps the camera to the',
-      '    densest incident hotspot in that city — do NOT try to pick a hotspot yourself.',
-      '  neighborhood → districts ("Square One", "Queen West", "North York", "Port Credit").',
-      '  specific → exact pins only: intersections ("Hurontario & Burnhamthorpe"), campus buildings,',
-      '    GO stations named precisely, street addresses. These keep the exact coordinates.',
+      '- place_type rules (map pans EXACTLY to the lat/lng you pass — choose carefully):',
+      '  city → whole city asks ("Mississauga", "Toronto", "Hamilton") — use that city\'s best-known',
+      '    active center / downtown / main hotspot coordinates from lookup_place or your knowledge.',
+      '  neighborhood → districts/malls ("Square One", "Bramalea City Centre", "Queen West", "Port Credit").',
+      '  specific → intersections, campus buildings, GO stations, street addresses.',
+      '- Never substitute a different city pin than the one the user asked about.',
       '- This applies even if no incidents are found — the map must always reflect the location being discussed.',
       '- You MUST call focus_map and search_incidents together in the same tool-use turn.',
-      '- Prefer lookup_place for coordinates. Hotspot snap for city/neighborhood happens server-side.',
+      '- Prefer lookup_place for coordinates when available.',
 
       '\n\nGEOGRAPHIC SCOPE / ALLOWLIST:',
       '- Hera covers Southern & Southwestern Ontario wherever incidents exist nearby.',
@@ -122,7 +122,7 @@ const SYSTEM_PROMPT: SystemContentBlock[] = [
       '- It is REQUIRED to say the most frequent category and the average severity score out of 10.',
       '- Mention a second category if REGION STATS provides one.',
       '- Mention high-severity count when REGION STATS includes it.',
-      '- If activity_hotspot is present, name that hotspot place (map already zooms there for city/neighborhood asks).',
+      '- If activity_hotspot is present, you may name that hotspot place in your spoken answer (map still stays on the focus_map coordinates you chose).',
       '- Optionally reference 1 recent example from the SAMPLE REPORTS section, without dumping a full list.',
       '- Do NOT paste the entire numbered list back to the user.',
       '- Always end with one practical, empowering safety tip tied to the dominant pattern',
@@ -155,23 +155,23 @@ const TOOLS: Tool[] = [
     toolSpec: {
       name: 'focus_map',
       description:
-        'Pan and zoom the map. For city/neighborhood queries the server snaps to the densest nearby incident hotspot. Use place_type=specific only for intersections, addresses, or exact POIs.',
+        'Pan and zoom the map to EXACTLY the latitude/longitude you provide. Pick the best pin for what the user asked (use lookup_place coords when available). place_type only controls zoom level.',
       inputSchema: {
         json: {
           type: 'object',
           properties: {
             latitude: {
               type: 'number',
-              description: 'Latitude of the requested place (city center, neighborhood, or exact pin).',
+              description: 'Exact latitude to pan to.',
             },
             longitude: {
               type: 'number',
-              description: 'Longitude of the requested place (city center, neighborhood, or exact pin).',
+              description: 'Exact longitude to pan to.',
             },
             place_type: {
               type: 'string',
               description:
-                'city | neighborhood | specific. city/neighborhood snap to activity hotspots; specific keeps exact coords.',
+                'city | neighborhood | specific — controls zoom only (city ~12.8, neighborhood ~14.2, specific ~15.6).',
             },
           },
           required: ['latitude', 'longitude'],
@@ -297,36 +297,26 @@ async function executeTool(
     case 'focus_map': {
       const lat = Number(input.latitude);
       const lng = Number(input.longitude);
-      try {
-        const focus = await resolveMapFocus(lat, lng, input.place_type);
-        const snapNote = focus.snapped
-          ? ` Snapped to activity hotspot` +
-            (focus.label ? ` near "${focus.label}"` : '') +
-            ` (${focus.reportCount} clustered reports).`
-          : ' Exact coordinates used (specific place or no nearby cluster).';
-        return {
-          output: `Map focused at ${focus.latitude.toFixed(4)}, ${focus.longitude.toFixed(4)} (zoom ${focus.zoom}).${snapNote}`,
-          mapAction: {
-            type: 'focus_map',
-            payload: {
-              latitude: focus.latitude,
-              longitude: focus.longitude,
-              zoom: focus.zoom,
-              snapped: focus.snapped,
-              label: focus.label,
-            },
-          },
-        };
-      } catch (err) {
-        console.error('focus_map hotspot resolve failed:', err);
-        return {
-          output: `Map panned to ${lat.toFixed(4)}, ${lng.toFixed(4)}.`,
-          mapAction: {
-            type: 'focus_map',
-            payload: { latitude: lat, longitude: lng, zoom: 13 },
-          },
-        };
+      const placeType = normalizePlaceType(input.place_type);
+      const zoom =
+        placeType === 'specific' ? 15.6 : placeType === 'neighborhood' ? 14.2 : 12.8;
+
+      if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+        return { output: 'focus_map failed: invalid coordinates.' };
       }
+
+      return {
+        output: `Map panned to exact coordinates ${lat.toFixed(4)}, ${lng.toFixed(4)} (zoom ${zoom}, place_type=${placeType}).`,
+        mapAction: {
+          type: 'focus_map',
+          payload: {
+            latitude: lat,
+            longitude: lng,
+            zoom,
+            place_type: placeType,
+          },
+        },
+      };
     }
 
     case 'filter_incidents': {
@@ -622,9 +612,7 @@ export async function POST(request: NextRequest) {
             `Coordinates: latitude ${matchedPlace.latitude}, longitude ${matchedPlace.longitude}.`,
             `place_type=${matchedPlace.placeType}.`,
             `You MUST call focus_map with place_type=${matchedPlace.placeType} AND search_incidents with radius_km=${matchedPlace.radiusKm} using these exact coordinates before answering.`,
-            matchedPlace.placeType === 'city'
-              ? 'For city queries the map may snap to the densest hotspot inside that city.'
-              : 'For neighborhood/specific queries the map must stay on these coordinates — do not substitute another Brampton/Toronto pin.',
+            'The map will pan EXACTLY to these coordinates — do not substitute a different pin.',
             'FORBIDDEN: do not say anything about a pilot phase or being out of coverage for this place.',
           ].join(' '),
         },

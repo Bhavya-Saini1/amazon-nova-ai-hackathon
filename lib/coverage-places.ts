@@ -11,10 +11,7 @@ export interface CoveragePlace {
   longitude: number;
   /** Suggested search radius so nearby corridor/hub reports are included */
   radiusKm: number;
-  /**
-   * city → may snap map to densest hotspot inside the city
-   * neighborhood/specific → keep the queried pin (no city-wide snap)
-   */
+  /** Controls focus_map zoom; coordinates are always used as-is for panning. */
   placeType: CoveragePlaceType;
 }
 
@@ -32,8 +29,7 @@ export const COVERAGE_PLACES: CoveragePlace[] = [
   { name: 'Square One', aliases: ['square one mall', 'mississauga city centre', 'city centre mississauga', 'celebration square'], latitude: 43.593, longitude: -79.6441, radiusKm: 4, placeType: 'neighborhood' },
   { name: 'Port Credit', aliases: ['port credit go'], latitude: 43.551, longitude: -79.583, radiusKm: 4, placeType: 'neighborhood' },
   { name: 'UTM', aliases: ['utm campus', 'university of toronto mississauga'], latitude: 43.548, longitude: -79.6625, radiusKm: 4, placeType: 'neighborhood' },
-  // Brampton city center sits between downtown + Bramalea; hotspot snap finds densest hub
-  { name: 'Brampton', aliases: [], latitude: 43.70, longitude: -79.74, radiusKm: 10, placeType: 'city' },
+  { name: 'Brampton', aliases: [], latitude: 43.685, longitude: -79.762, radiusKm: 10, placeType: 'city' },
   { name: 'Downtown Brampton', aliases: ['queen and main brampton', 'garden square', 'brampton go'], latitude: 43.685, longitude: -79.762, radiusKm: 4, placeType: 'neighborhood' },
   { name: 'Bramalea City Centre', aliases: ['bramalea', 'bramlea', 'bramalea city centre', 'bramlea city centre', 'bramalea mall', 'bramalea go'], latitude: 43.708, longitude: -79.711, radiusKm: 4, placeType: 'neighborhood' },
   { name: 'Trinity Common', aliases: ['trinity commons', 'trinity common brampton'], latitude: 43.732, longitude: -79.785, radiusKm: 3, placeType: 'neighborhood' },
