@@ -269,7 +269,9 @@ async function executeTool(
           }
         }
 
-        const rankedCategories = [...categoryCounts.entries()].sort((a, b) => b[1] - a[1]);
+        const rankedCategories = Array.from(categoryCounts.entries()).sort(
+          (a, b) => b[1] - a[1]
+        );
         const topCategory = rankedCategories[0];
         const secondCategory = rankedCategories[1];
         const avgSeverity =
@@ -277,7 +279,9 @@ async function executeTool(
             ? severities.reduce((sum, value) => sum + value, 0) / severities.length
             : null;
         const highSeverityCount = severities.filter((value) => value >= 7).length;
-        const topLocation = [...locationCounts.entries()].sort((a, b) => b[1] - a[1])[0];
+        const topLocation = Array.from(locationCounts.entries()).sort(
+          (a, b) => b[1] - a[1]
+        )[0];
 
         const categorySummary = rankedCategories
           .slice(0, 4)
