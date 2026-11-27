@@ -80,16 +80,19 @@ const SYSTEM_PROMPT: SystemContentBlock[] = [
       '  London ON: latitude 42.9849, longitude -81.2453',
 
       '\n\nGEOGRAPHIC SCOPE:',
-      '- Hera covers Southern Ontario end-to-end. IN-SCOPE cities include (non-exhaustive):',
-      '  Toronto, Mississauga, Brampton, Oakville, Burlington, Hamilton, Niagara / St. Catharines / Niagara Falls,',
-      '  Kitchener-Waterloo, Guelph, London Ontario, Oshawa / Whitby / Ajax (Durham), Windsor, Barrie,',
-      '  and nearby suburbs / campuses (UTM, McMaster, Western, Brock, UWindsor, etc.).',
-      '- CRITICAL: "London" ALWAYS means London, Ontario, Canada (lat 42.9849, lng -81.2453).',
-      '  NEVER treat London as London UK, and NEVER give the pilot-phase disclaimer for London.',
-      '- For ANY in-scope place you MUST call focus_map + search_incidents FIRST and answer from REGION STATS.',
-      '  Do NOT invent generic tips instead of searching. Do NOT claim the city is outside the pilot.',
-      '- ONLY if the place is clearly outside Southern Ontario (e.g. Vancouver, Montreal, New York, London UK',
-      '  when the user explicitly says UK/England) may you say:',
+      '- Coverage = wherever Hera has incident data across Southern / Southwestern Ontario.',
+      '- That includes big cities AND smaller towns: Toronto, Mississauga, Brampton, Oakville, Burlington,',
+      '  Hamilton, Niagara / St. Catharines / Niagara Falls, Kitchener-Waterloo, Cambridge, Guelph,',
+      '  London Ontario, Stratford, Listowel, Woodstock, Brantford, St. Thomas, Chatham, Windsor,',
+      '  Oshawa / Whitby / Ajax / Pickering, Barrie, Orillia, and surrounding rural corridors.',
+      '- CRITICAL disambiguation: "London" = London Ontario (42.9849, -81.2453), NEVER London UK.',
+      '- HARD RULE: For EVERY place ask, call focus_map + search_incidents FIRST. Never skip tools.',
+      '- If REGION STATS shows total_reports > 0, you are IN COVERAGE. Answer ONLY from those stats.',
+      '  NEVER say the pilot-phase line when reports exist.',
+      '- If REGION STATS shows total_reports = 0 for a Southern Ontario town, say the area looks quiet in Hera',
+      '  data right now and give one short local tip. Do NOT use the pilot-phase disclaimer for Ontario towns.',
+      '- The pilot-phase sentence is ONLY allowed when the user clearly asks about a place outside Ontario',
+      '  (e.g. Vancouver, Montreal, Calgary, New York, or London UK/England explicitly):',
       '  "Hera is currently in a pilot phase for Southern Ontario. I can still share general safety tips for your area!"',
       '- NEVER refuse to help entirely — always offer value.',
 
@@ -187,7 +190,7 @@ const TOOLS: Tool[] = [
             radius_km: {
               type: 'number',
               description:
-                'Search radius in kilometers. Default 12 for city-level questions, maximum 50.',
+                'Search radius in kilometers. Default 12 for large cities; use 20-30 for smaller towns like Listowel/Stratford so nearby corridor reports are included. Maximum 50.',
             },
             category: {
               type: 'string',
@@ -208,6 +211,33 @@ const TOOLS: Tool[] = [
 interface ToolExecResult {
   output: string;
   mapAction?: { type: string; payload: Record<string, unknown> };
+}
+
+/** Rough Southern / Southwestern Ontario coverage box matching seeded data. */
+function isInHeraCoverage(lat: number, lng: number): boolean {
+  return (
+    Number.isFinite(lat) &&
+    Number.isFinite(lng) &&
+    lat >= 41.9 &&
+    lat <= 45.1 &&
+    lng >= -83.6 &&
+    lng <= -78.4
+  );
+}
+
+function coverageBanner(lat: number, lng: number, totalReports: number): string {
+  if (isInHeraCoverage(lat, lng)) {
+    return [
+      'COVERAGE=IN_SCOPE_SOUTHERN_ONTARIO',
+      totalReports > 0
+        ? 'FORBIDDEN: Do NOT say "pilot phase" / out-of-coverage. Answer from REGION STATS only.'
+        : 'IN SCOPE but quiet. Say reports look clear nearby; give one short tip. Do NOT say "pilot phase".',
+    ].join(' ');
+  }
+  return [
+    'COVERAGE=OUT_OF_SCOPE',
+    'You may use the Southern Ontario pilot-phase disclaimer, then one short general tip.',
+  ].join(' ');
 }
 
 async function executeTool(
@@ -296,6 +326,7 @@ async function executeTool(
         if (posts.length === 0) {
           return {
             output: [
+              coverageBanner(lat, lng, 0),
               `REGION STATS: total_reports=0 within ${radiusKm}km.`,
               'Respond positively: tell the user the area looks clear based on Hera reports,',
               'then share one short practical tip. Avoid long seasonal/vibe digressions.',
@@ -363,6 +394,7 @@ async function executeTool(
 
         return {
           output: [
+            coverageBanner(lat, lng, posts.length),
             'REGION STATS (REQUIRED in your answer):',
             `- total_reports=${posts.length} within ${radiusKm}km of (${lat.toFixed(4)}, ${lng.toFixed(4)})`,
             `- most_frequent_category=${topCategory ? `${topCategory[0]} (${topCategory[1]} reports)` : 'n/a'}`,
@@ -382,7 +414,7 @@ async function executeTool(
             'SAMPLE REPORTS (optional color only — do not dump this whole list):',
             ...summaries,
             '',
-            'Answer requirements: state total_reports, most_frequent_category, and average_severity explicitly. Mention the activity hotspot place when present. Then one practical tip.',
+            'Answer requirements: state total_reports, most_frequent_category, and average_severity explicitly. Mention the activity hotspot place when present. Then one practical tip. Never claim pilot/out-of-coverage when COVERAGE=IN_SCOPE.',
           ].join('\n'),
         };
       } catch (err) {
