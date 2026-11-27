@@ -103,6 +103,7 @@ function parseNumericCoordinate(
   value: unknown,
   maxAbs: number
 ): number | null {
+  if (value === null || value === undefined || value === '') return null;
   const n = typeof value === 'string' ? parseFloat(value) : Number(value);
   if (!Number.isFinite(n) || Math.abs(n) > maxAbs) return null;
   return n;
