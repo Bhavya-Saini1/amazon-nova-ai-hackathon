@@ -366,7 +366,12 @@ async function executeTool(
           (a, b) => b[1] - a[1]
         )[0];
 
-        const hotspot = await findActivityHotspot(lat, lng, radiusKm, 0.01);
+        const hotspot = await findActivityHotspot(
+          lat,
+          lng,
+          radiusKm,
+          Math.min(2.2, Math.max(1.0, radiusKm * 0.15))
+        );
 
         const categorySummary = rankedCategories
           .slice(0, 4)
