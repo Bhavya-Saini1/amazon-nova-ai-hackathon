@@ -2,6 +2,7 @@
   "name": "amazon-nova-ai-hackathon",
   "version": "0.1.0",
   "private": true,
+  "description": "Hera — community safety reports, Mapbox heatmap, and Nova agent over MongoDB geospatial data",
   "engines": {
     "node": ">=20"
   },
