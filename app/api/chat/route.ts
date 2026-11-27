@@ -48,8 +48,12 @@ const SYSTEM_PROMPT: SystemContentBlock[] = [
       '\n\nCRITICAL RULE — DATA FIRST:',
       '- If the user asks about ANY location, you MUST call BOTH focus_map AND search_incidents in the SAME turn.',
       '- Call them together — do NOT wait for one to finish before calling the other.',
-      '- If search_incidents returns data, you MUST synthesize that data in your response,',
-      '  explicitly mentioning the types of incidents (e.g., Catcalling, Stalking) and their severities.',
+      '- If search_incidents returns data, your reply MUST be grounded in the REGION STATS block.',
+      '- You MUST include concrete numbers from REGION STATS: total reports, most frequent category,',
+      '  category share/count, and average severity (and high-severity count when present).',
+      '- Example: "In this Mississauga radius I see 18 reports. The most common category is Catcalling (8 reports),',
+      '  with average severity around 6.2/10; 4 reports are high-severity (7+)."',
+      '- Then add one short practical tip. Keep vibe/seasonal chatter secondary.',
       '- DO NOT use the generic "March Break / weather" vibe fallback unless search_incidents returns EXACTLY zero results.',
       '- Real data always takes priority over vibes.',
 
@@ -94,14 +98,14 @@ const SYSTEM_PROMPT: SystemContentBlock[] = [
       '  March Break means the ROM and AGO will be bustling but well-staffed. Stick to well-lit streets after dark and you\'re golden."',
 
       '\n\nINCIDENT SYNTHESIS (when incidents ARE found):',
-      '- You MUST mention how many reports were found and the dominant categories (e.g., Catcalling, Stalking, Ogling, Verbal Harassment).',
-      '- Weave severity, category, and recency into a conversational paragraph.',
-      '- Mention whether incidents tend to be daytime or nighttime if relevant.',
-      '- Do NOT list raw data, numbered items, or severity numbers.',
-      '- Example: "I found several recent reports around downtown Toronto — mostly catcalling and verbal harassment,',
-      '  with a few higher-severity stalking incidents reported after dark near Union Station.',
-      '  Stay alert on side streets in the evening and stick to well-lit, busy routes."',
-      '- Always end with practical, empowering safety advice.',
+      '- Lead with REGION STATS numbers (count, top category, avg severity). Do not stay vague.',
+      '- It is REQUIRED to say the most frequent category and the average severity score out of 10.',
+      '- Mention a second category if REGION STATS provides one.',
+      '- Mention high-severity count when REGION STATS includes it.',
+      '- Optionally reference 1 recent example from the SAMPLE REPORTS section, without dumping a full list.',
+      '- Do NOT paste the entire numbered list back to the user.',
+      '- Always end with one practical, empowering safety tip tied to the dominant pattern',
+      '  (e.g. if Catcalling dominates near transit, recommend busier exits / well-lit corridors).',
     ].join(' '),
   },
 ];
@@ -147,7 +151,7 @@ const TOOLS: Tool[] = [
     toolSpec: {
       name: 'search_incidents',
       description:
-        'Search the live database for recent safety incident reports near a location. You MUST call this tool whenever the user mentions a location. Returns summaries you should synthesize into a conversational answer.',
+        'Search the live database for safety incident reports near a location. You MUST call this whenever the user mentions a location. Returns REGION STATS (top categories, average severity, counts) plus sample reports. Your spoken answer MUST use those stats.',
       inputSchema: {
         json: {
           type: 'object',
@@ -156,7 +160,8 @@ const TOOLS: Tool[] = [
             longitude: { type: 'number', description: 'Center longitude for the search area.' },
             radius_km: {
               type: 'number',
-              description: 'Search radius in kilometers. Default 5, maximum 50.',
+              description:
+                'Search radius in kilometers. Default 12 for city-level questions, maximum 50.',
             },
             category: {
               type: 'string',
@@ -204,7 +209,7 @@ async function executeTool(
     case 'search_incidents': {
       const lat = Number(input.latitude);
       const lng = Number(input.longitude);
-      const radiusKm = Math.min(Number(input.radius_km ?? 5), 50);
+      const radiusKm = Math.min(Number(input.radius_km ?? 12), 50);
       const category = input.category ? String(input.category) : null;
       const limit = Math.min(Number(input.limit ?? 25), 25);
 
@@ -230,8 +235,8 @@ async function executeTool(
 
         const posts = await Post.find(query)
           .sort({ created_at: -1 })
-          .limit(limit)
-          .select('raw_text categories severity_index created_at location')
+          .limit(Math.max(limit, 50))
+          .select('raw_text categories severity_index created_at location location_text')
           .lean();
 
         console.log(`[TOOL] search_incidents found ${posts.length} results for coordinates ${lat}, ${lng} (radius ${radiusKm}km / ${maxDistMeters}m)`);
@@ -239,31 +244,84 @@ async function executeTool(
         if (posts.length === 0) {
           return {
             output: [
-              `Zero incidents reported within ${radiusKm}km — the area appears safe and quiet.`,
-              'Respond positively: tell the user the area looks clear,',
-              'then share the local vibe for March 2026 (March Break events, seasonal happenings, practical tips).',
+              `REGION STATS: total_reports=0 within ${radiusKm}km.`,
+              'Respond positively: tell the user the area looks clear based on Hera reports,',
+              'then share one short practical tip. Avoid long seasonal/vibe digressions.',
             ].join(' '),
           };
         }
 
-        const summaries = posts.map((p, i) => {
+        const categoryCounts = new Map<string, number>();
+        const locationCounts = new Map<string, number>();
+        const severities: number[] = [];
+
+        for (const post of posts) {
+          const cats = post.categories?.length ? post.categories : ['uncategorized'];
+          for (const cat of cats) {
+            categoryCounts.set(cat, (categoryCounts.get(cat) ?? 0) + 1);
+          }
+          const loc = post.location_text?.trim();
+          if (loc) {
+            locationCounts.set(loc, (locationCounts.get(loc) ?? 0) + 1);
+          }
+          if (typeof post.severity_index === 'number' && Number.isFinite(post.severity_index)) {
+            severities.push(post.severity_index);
+          }
+        }
+
+        const rankedCategories = [...categoryCounts.entries()].sort((a, b) => b[1] - a[1]);
+        const topCategory = rankedCategories[0];
+        const secondCategory = rankedCategories[1];
+        const avgSeverity =
+          severities.length > 0
+            ? severities.reduce((sum, value) => sum + value, 0) / severities.length
+            : null;
+        const highSeverityCount = severities.filter((value) => value >= 7).length;
+        const topLocation = [...locationCounts.entries()].sort((a, b) => b[1] - a[1])[0];
+
+        const categorySummary = rankedCategories
+          .slice(0, 4)
+          .map(([name, count]) => {
+            const pct = Math.round((count / posts.length) * 100);
+            return `${name}=${count} (${pct}%)`;
+          })
+          .join(', ');
+
+        const sampleLimit = Math.min(limit, 8);
+        const summaries = posts.slice(0, sampleLimit).map((p, i) => {
           const cats = (p.categories ?? []).join(', ') || 'uncategorized';
           const sev = p.severity_index ?? 'unknown';
           const date = new Date(p.created_at).toLocaleDateString('en-US', {
             month: 'short',
             day: 'numeric',
           });
+          const place = p.location_text?.trim() || 'unspecified place';
           const snippet =
-            p.raw_text.length > 120
-              ? p.raw_text.slice(0, 120) + '...'
+            p.raw_text.length > 100
+              ? p.raw_text.slice(0, 100) + '...'
               : p.raw_text;
-          return `${i + 1}. [${date}] severity ${sev}/10, categories: ${cats} — "${snippet}"`;
+          return `${i + 1}. [${date}] severity ${sev}/10, categories: ${cats}, place: ${place} — "${snippet}"`;
         });
 
         return {
           output: [
-            `Found ${posts.length} incident(s) within ${radiusKm}km:`,
+            'REGION STATS (REQUIRED in your answer):',
+            `- total_reports=${posts.length} within ${radiusKm}km of (${lat.toFixed(4)}, ${lng.toFixed(4)})`,
+            `- most_frequent_category=${topCategory ? `${topCategory[0]} (${topCategory[1]} reports)` : 'n/a'}`,
+            secondCategory
+              ? `- second_category=${secondCategory[0]} (${secondCategory[1]} reports)`
+              : '- second_category=n/a',
+            `- category_breakdown=${categorySummary || 'n/a'}`,
+            `- average_severity=${avgSeverity === null ? 'n/a' : avgSeverity.toFixed(1)}/10`,
+            `- high_severity_count_7plus=${highSeverityCount}`,
+            topLocation
+              ? `- most_mentioned_place=${topLocation[0]} (${topLocation[1]} reports)`
+              : '- most_mentioned_place=n/a',
+            '',
+            'SAMPLE REPORTS (optional color only — do not dump this whole list):',
             ...summaries,
+            '',
+            'Answer requirements: state total_reports, most_frequent_category, and average_severity explicitly. Then one practical tip.',
           ].join('\n'),
         };
       } catch (err) {
